@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import io from "socket.io-client";
 import FlickeringGrid from "./FlickeringGrid";
+import DecryptedText from "./DecryptedText";
 
 const socket = io("http://localhost:2000");
 
@@ -33,9 +34,7 @@ export default function Moderator() {
   };
 
   const handleKeyPress = (e) => {
-    if (e.key === "Enter") {
-      handleSetTopic();
-    }
+    if (e.key === "Enter") handleSetTopic();
   };
 
   return (
@@ -103,12 +102,26 @@ export default function Moderator() {
                     <div className="comparison-grid">
                       <div className="comparison-box claim-box">
                         <div className="box-label">🗣️ Claim</div>
-                        <p className="box-text">"{c.claim}"</p>
+                        <p className="box-text">
+                          <DecryptedText
+                            text={`"${c.claim}"`}
+                            speed={25}
+                            maxIterations={12}
+                            animateOn="view"
+                          />
+                        </p>
                       </div>
 
                       <div className="comparison-box fact-box">
                         <div className="box-label">🔍 Reality</div>
-                        <p className="box-text">{c.fact}</p>
+                        <p className="box-text">
+                          <DecryptedText
+                            text={c.fact || "No factual reference provided."}
+                            speed={25}
+                            maxIterations={12}
+                            animateOn="view"
+                          />
+                        </p>
                       </div>
                     </div>
 

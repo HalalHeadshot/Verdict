@@ -10,6 +10,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "install": "^0.13.0",
+    "motion": "^12.26.2",
+    "npm": "^11.7.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "socket.io-client": "^4.8.3"
