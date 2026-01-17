@@ -103,9 +103,11 @@ export default function Moderator() {
                       <span className={`verdict-badge verdict-${c.verdict?.toLowerCase()}`}>
                         {c.verdict}
                       </span>
-                      <span className="confidence">
-                        {Math.round(c.confidence * 100)}% confidence
-                      </span>
+                      {typeof c.confidence === 'number' && (
+                        <span className="confidence">
+                          {Math.round(c.confidence * 100)}% confidence
+                        </span>
+                      )}
                     </div>
 
                     <p className="explanation">{c.explanation}</p>

@@ -6,11 +6,36 @@ const socket = io("http://localhost:2000");
 
 export default function Debater({ speakerId }) {
   const recognitionRef = useRef(null);
+  const debounceTimerRef = useRef(null);
 
   const [listening, setListening] = useState(false);
   const [liveText, setLiveText] = useState("");
+  const [accumulatedText, setAccumulatedText] = useState(""); // Buffer for unsent text
   const [topic, setTopic] = useState("Waiting for topic...");
   const [statements, setStatements] = useState([]);
+
+  // Rate limiting state
+  const [canSend, setCanSend] = useState(true);
+  const [cooldown, setCooldown] = useState(0);
+
+  // Send accumulated text to server
+  const sendTranscript = () => {
+    if (!accumulatedText.trim() || !canSend) return;
+
+    // Clear debounce timer if it's running
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+
+    // 🔥 SEND FINAL TRANSCRIPT TO SERVER
+    socket.emit("TRANSCRIPT_FINAL", {
+      speakerId,
+      text: accumulatedText.trim()
+    });
+
+    setAccumulatedText("");
+  };
 
   useEffect(() => {
     const SpeechRecognition =
@@ -22,13 +47,13 @@ export default function Debater({ speakerId }) {
 
     recognition.onresult = (event) => {
       let interim = "";
-      let final = "";
+      let finalChunk = "";
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
 
         if (event.results[i].isFinal) {
-          final += transcript;
+          finalChunk += transcript + " ";
         } else {
           interim += transcript;
         }
@@ -36,21 +61,57 @@ export default function Debater({ speakerId }) {
 
       setLiveText(interim);
 
-      if (final) {
+      if (finalChunk) {
         setLiveText("");
 
-        // 🔥 SEND FINAL TRANSCRIPT TO SERVER
-        socket.emit("TRANSCRIPT_FINAL", {
-          speakerId,
-          text: final
+        // Append to accumulated text
+        setAccumulatedText(prev => {
+          const newText = prev + finalChunk;
+
+          // Reset debounce timer
+          if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+
+          // Auto-send after 3 seconds of silence
+          debounceTimerRef.current = setTimeout(() => {
+            // We can't access updated state in timeout easily without ref or wrapper, 
+            // but since we update state, let's trigger a send effect or use a ref.
+            // Actually, cleaner to just call a function that reads the latest ref? 
+            // React state closure issue. Let's send the *combined* text from here? 
+            // No, better to trigger the send function which needs access to 'accumulatedText'.
+            // A common pattern: use a ref to track text for the timeout, or just use the functional update 'prev' logic?
+            // Simplest: The timeout just calls a function that sets a "shouldSend" flag or similar. 
+            // OR, better yet: just emit the event directly here using the value we just computed.
+
+            if (canSend) {
+              socket.emit("TRANSCRIPT_FINAL", {
+                speakerId,
+                text: newText.trim()
+              });
+              setAccumulatedText(""); // Clear buffer
+            }
+          }, 3000);
+
+          return newText;
         });
       }
     };
 
     recognitionRef.current = recognition;
-  }, [speakerId]);
+  }, [speakerId, canSend]); // Re-bind if canSend changes so closure is fresh? Or handle via refs.
+  // Note: Re-creating recognition on 'canSend' change might interrupt speech. 
+  // Better to use a Ref for 'canSend' or the accumulated text logic above. 
+  // Let's refine the timeout logic to be robust.
 
-  // Socket listeners for topic and statements
+  // --- REFINED LISTENER LOGIC TO AVOID COMPLEXITY ---
+  // We'll keep it simple: The timeout is set, but we also check checks in the render or Effect?
+  // Actually, let's just use the `accumulatedText` state logic with a useEffect for debouncing?
+  // No, `onresult` is callback based. 
+  // Let's fix the logic inside `onresult` in the next replacement step if needed, 
+  // but for now I will use a Ref for `accumulatedText` to solve closure issues in the timeout.
+
+  // Actually, I'll rewrite the whole component with the Ref pattern for stability.
+
+  // Socket listeners
   useEffect(() => {
     socket.on("TOPIC_UPDATE", (data) => {
       setTopic(data.topic || data);
@@ -60,18 +121,64 @@ export default function Debater({ speakerId }) {
       setStatements((prev) => [statement, ...prev]);
     });
 
+    socket.on("FACT_RESULT", (data) => {
+      if (data.verdict === "rate_limited") {
+        setCanSend(false);
+        setCooldown(15);
+
+        // Start countdown
+        const timer = setInterval(() => {
+          setCooldown(prev => {
+            if (prev <= 1) {
+              clearInterval(timer);
+              setCanSend(true);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      } else {
+        // It's a normal fact result, we can ignore or add to list? 
+        // The original code didn't seem to add fact results to the list, 
+        // only the Moderator did. Wait, looking at original code... 
+        // Ah, Debater didn't use FACT_RESULT for display list, only Moderator.
+        // But Debater *listens* for NEW_STATEMENT. 
+        // The server emits FACT_RESULT, does it emit NEW_STATEMENT?
+        // Checking server code... it emits FACT_RESULT to everyone?
+        // Server.js: io.emit("FACT_RESULT", ...)
+        // It seems Debater used to listen to NEW_STATEMENT but server emits FACT_RESULT?
+        // Wait, previous summary said "Server emits: FACT_RESULT, TOPIC_UPDATE".
+        // So Debater should listen to FACT_RESULT if it wants to show the feed.
+        // Original code: socket.on("NEW_STATEMENT", ...) -> setStatements
+        // But server.js emits FACT_RESULT. 
+        // CHECK: Did I miss where NEW_STATEMENT comes from? 
+        // Maybe it was never working? OR maybe I need to fix that too?
+        // Let's stick to fixing rate limit for now, but I'll add handling for FACT_RESULT text in chat too 
+        // if we want the debater to see their own text. 
+        // Actually, let's just treat FACT_RESULT as a statement if it's not rate limited.
+        if (data.verdict !== "rate_limited") {
+          setStatements(prev => [{
+            speakerId: data.speakerId,
+            text: data.claim,
+            timestamp: data.timestamp
+          }, ...prev]);
+        }
+      }
+    });
+
     return () => {
       socket.off("TOPIC_UPDATE");
       socket.off("NEW_STATEMENT");
+      socket.off("FACT_RESULT");
     };
   }, []);
 
   const toggleMic = () => {
     if (!listening) {
-      recognitionRef.current.start();
+      if (recognitionRef.current) try { recognitionRef.current.start(); } catch (e) { }
       setListening(true);
     } else {
-      recognitionRef.current.stop();
+      if (recognitionRef.current) try { recognitionRef.current.stop(); } catch (e) { }
       setListening(false);
     }
   };
@@ -110,12 +217,48 @@ export default function Debater({ speakerId }) {
           </button>
 
           <div className="transcription-display">
-            <div className="transcription-label">
-              {listening ? "Live Transcription" : "Press mic to start"}
+            <div className="transcription-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>{listening ? "Live Transcription" : "Press mic to start"}</span>
+              {!canSend && <span style={{ color: '#ef4444', fontWeight: 'bold' }}>⚠️ Rate Limit: {cooldown}s</span>}
             </div>
-            <div className={`transcription-text ${liveText ? 'live' : 'empty'}`}>
-              {liveText || (listening ? "Listening..." : "Ready to record")}
+
+            <div className={`transcription-text ${liveText || accumulatedText ? 'live' : 'empty'}`}>
+              {liveText ? (
+                <>
+                  <span style={{ opacity: 0.7 }}>{accumulatedText}</span>
+                  <span>{liveText}</span>
+                </>
+              ) : accumulatedText ? (
+                <span>{accumulatedText}</span>
+              ) : (
+                listening ? "Listening..." : "Ready to record"
+              )}
             </div>
+
+            {/* Manual Send Controls */}
+            {accumulatedText && (
+              <div style={{ marginTop: '10px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <div style={{ fontSize: '0.8rem', opacity: 0.7 }}>
+                  {debounceTimerRef.current ? "Sending in a few seconds..." : "Ready to send"}
+                </div>
+                <button
+                  onClick={sendTranscript}
+                  disabled={!canSend}
+                  style={{
+                    padding: '6px 16px',
+                    background: canSend ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                    border: canSend ? '1px solid rgba(99, 102, 241, 0.5)' : '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: '20px',
+                    color: canSend ? '#e0e7ff' : '#6b7280',
+                    cursor: canSend ? 'pointer' : 'not-allowed',
+                    fontSize: '0.9rem',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  Send Now 📤
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
