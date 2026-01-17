@@ -72,6 +72,17 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Handle topic updates from moderator
+  socket.on("SET_TOPIC", (data) => {
+    console.log("📋 Topic set:", data.topic);
+
+    // Broadcast topic to all connected clients
+    io.emit("TOPIC_UPDATE", {
+      topic: data.topic,
+      timestamp: Date.now()
+    });
+  });
+
   socket.on("disconnect", () => {
     console.log("🔴 Disconnected:", socket.id);
   });

@@ -1,55 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
+import FlickeringGrid from "./FlickeringGrid";
+
+const socket = io("http://localhost:2000");
 
 export default function Debater({ speakerId }) {
-  const socketRef = useRef(null);
   const recognitionRef = useRef(null);
 
   const [listening, setListening] = useState(false);
   const [liveText, setLiveText] = useState("");
-  const [finalText, setFinalText] = useState("");
-  const [factResult, setFactResult] = useState(null);
-  const [connectionStatus, setConnectionStatus] = useState("disconnected");
-
-  useEffect(() => {
-    // Initialize socket connection
-    const socket = io("http://localhost:2000", {
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      reconnectionAttempts: 5
-    });
-
-    socketRef.current = socket;
-
-    // Connection event listeners
-    socket.on("connect", () => {
-      console.log("✅ Connected to server:", socket.id);
-      setConnectionStatus("connected");
-    });
-
-    socket.on("connect_error", (error) => {
-      console.error("❌ Connection error:", error);
-      setConnectionStatus("error");
-    });
-
-    socket.on("disconnect", () => {
-      console.log("🔌 Disconnected from server");
-      setConnectionStatus("disconnected");
-    });
-
-    // Listen for fact-check results
-    socket.on("FACT_RESULT", (data) => {
-      console.log("📊 Fact result received:", data);
-      setFactResult(data);
-    });
-
-    // Cleanup on unmount
-    return () => {
-      socket.disconnect();
-      console.log("🧹 Socket cleaned up");
-    };
-  }, []);
+  const [topic, setTopic] = useState("Waiting for topic...");
+  const [statements, setStatements] = useState([]);
 
   useEffect(() => {
     const SpeechRecognition =
@@ -76,23 +37,34 @@ export default function Debater({ speakerId }) {
       setLiveText(interim);
 
       if (final) {
-        setFinalText(final);
         setLiveText("");
 
         // 🔥 SEND FINAL TRANSCRIPT TO SERVER
-        if (socketRef.current && socketRef.current.connected) {
-          socketRef.current.emit("TRANSCRIPT_FINAL", {
-            speakerId,
-            text: final
-          });
-        } else {
-          console.warn("⚠️ Socket not connected");
-        }
+        socket.emit("TRANSCRIPT_FINAL", {
+          speakerId,
+          text: final
+        });
       }
     };
 
     recognitionRef.current = recognition;
   }, [speakerId]);
+
+  // Socket listeners for topic and statements
+  useEffect(() => {
+    socket.on("TOPIC_UPDATE", (data) => {
+      setTopic(data.topic || data);
+    });
+
+    socket.on("NEW_STATEMENT", (statement) => {
+      setStatements((prev) => [statement, ...prev]);
+    });
+
+    return () => {
+      socket.off("TOPIC_UPDATE");
+      socket.off("NEW_STATEMENT");
+    };
+  }, []);
 
   const toggleMic = () => {
     if (!listening) {
@@ -104,40 +76,77 @@ export default function Debater({ speakerId }) {
     }
   };
 
+  const formatTime = (timestamp) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
   return (
-    <div style={{ padding: 20 }}>
-      <h2>🎤 Debater: {speakerId}</h2>
+    <div style={{ width: '100%', minHeight: '100vh', position: 'relative' }}>
+      <FlickeringGrid
+        className="absolute inset-0 w-full h-full"
+        squareSize={4}
+        gridGap={6}
+        color="#6366f1"
+        maxOpacity={0.3}
+        flickerChance={0.1}
+      />
 
-      {/* Connection Status */}
-      <div style={{ marginBottom: 15, padding: 10, backgroundColor: connectionStatus === "connected" ? "#d4edda" : connectionStatus === "error" ? "#f8d7da" : "#e2e3e5", borderRadius: 4 }}>
-        <p style={{ margin: 0 }}>
-          Connection: <b>{connectionStatus.toUpperCase()}</b>
-        </p>
-      </div>
-
-      <button onClick={toggleMic}>
-        {listening ? "🛑 Stop" : "▶ Start Speaking"}
-      </button>
-
-      <div style={{ marginTop: 20 }}>
-        <h4>📝 Live Transcription</h4>
-        <p style={{ color: "gray" }}>{liveText || "Listening..."}</p>
-      </div>
-
-      <div style={{ marginTop: 20 }}>
-        <h4>✅ Final Sentence Sent</h4>
-        <p><b>{finalText}</b></p>
-      </div>
-
-      {/* Fact Check Result */}
-      {factResult && (
-        <div style={{ marginTop: 20, padding: 15, backgroundColor: "#e7f3ff", borderRadius: 4, border: "1px solid #b3d9ff" }}>
-          <h4>📊 Fact Check Result</h4>
-          <p><b>Verdict:</b> {factResult.verdict}</p>
-          <p><b>Confidence:</b> {(factResult.confidence * 100).toFixed(1)}%</p>
-          <p><b>Explanation:</b> {factResult.explanation}</p>
+      <div className="debater-container" style={{ position: 'relative', zIndex: 1 }}>
+        {/* Topic Card */}
+        <div className="topic-card">
+          <div className="topic-label">Current Topic</div>
+          <div className="topic-text">{topic}</div>
         </div>
-      )}
+
+        {/* Transcription Section */}
+        <div className="transcription-section">
+          <button
+            className={`mic-button ${listening ? 'listening' : ''}`}
+            onClick={toggleMic}
+            aria-label={listening ? "Stop recording" : "Start recording"}
+          >
+            {listening ? "🛑" : "🎤"}
+          </button>
+
+          <div className="transcription-display">
+            <div className="transcription-label">
+              {listening ? "Live Transcription" : "Press mic to start"}
+            </div>
+            <div className={`transcription-text ${liveText ? 'live' : 'empty'}`}>
+              {liveText || (listening ? "Listening..." : "Ready to record")}
+            </div>
+          </div>
+        </div>
+
+        {/* Statements Section */}
+        <div className="statements-section">
+          <div className="statements-header">💬 Debate Statements</div>
+          <div className="statements-feed">
+            {statements.length === 0 ? (
+              <div className="statements-empty">
+                No statements yet. Start the debate!
+              </div>
+            ) : (
+              statements.map((statement, index) => (
+                <div key={index} className="statement-card">
+                  <div className="statement-header">
+                    <div className="statement-speaker">
+                      {statement.speakerId || "Unknown"}
+                    </div>
+                    {statement.timestamp && (
+                      <div className="statement-time">
+                        {formatTime(statement.timestamp)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="statement-text">{statement.text}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

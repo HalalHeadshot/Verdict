@@ -1,37 +1,121 @@
 import { useEffect, useState } from "react";
 import io from "socket.io-client";
+import FlickeringGrid from "./FlickeringGrid";
 
 const socket = io("http://localhost:2000");
 
 export default function Moderator() {
   const [claims, setClaims] = useState([]);
+  const [topicInput, setTopicInput] = useState("");
+  const [currentTopic, setCurrentTopic] = useState("No topic set");
 
   useEffect(() => {
     socket.on("FACT_RESULT", (data) => {
       setClaims((prev) => [data, ...prev]);
     });
+
+    // Listen for topic updates (when another moderator sets it)
+    socket.on("TOPIC_UPDATE", (data) => {
+      setCurrentTopic(data.topic);
+    });
+
+    return () => {
+      socket.off("FACT_RESULT");
+      socket.off("TOPIC_UPDATE");
+    };
   }, []);
 
-  return (
-    <div style={{ padding: 20 }}>
-      <h1>🧑‍⚖️ Moderator Panel</h1>
+  const handleSetTopic = () => {
+    if (topicInput.trim()) {
+      socket.emit("SET_TOPIC", { topic: topicInput.trim() });
+      setCurrentTopic(topicInput.trim());
+      setTopicInput("");
+    }
+  };
 
-      {claims.map((c, i) => (
-        <div
-          key={i}
-          style={{
-            border: "1px solid #ccc",
-            marginBottom: 12,
-            padding: 10
-          }}
-        >
-          <p><b>Speaker:</b> {c.speakerId}</p>
-          <p><b>Claim:</b> {c.claim}</p>
-          <p><b>Verdict:</b> {c.verdict}</p>
-          <p><b>Confidence:</b> {Math.round(c.confidence * 100)}%</p>
-          <p>{c.explanation}</p>
+  const handleKeyPress = (e) => {
+    if (e.key === "Enter") {
+      handleSetTopic();
+    }
+  };
+
+  return (
+    <div style={{ width: '100%', minHeight: '100vh', position: 'relative' }}>
+      <FlickeringGrid
+        className="absolute inset-0 w-full h-full"
+        squareSize={4}
+        gridGap={6}
+        color="#6366f1"
+        maxOpacity={0.3}
+        flickerChance={0.1}
+      />
+
+      <div className="moderator-container" style={{ position: 'relative', zIndex: 1 }}>
+        {/* Topic Control Section */}
+        <div className="topic-control-card">
+          <h1 className="moderator-title">🧑‍⚖️ Moderator Panel</h1>
+
+          <div className="current-topic-display">
+            <span className="topic-label">Current Topic:</span>
+            <span className="topic-value">{currentTopic}</span>
+          </div>
+
+          <div className="topic-input-section">
+            <input
+              type="text"
+              className="topic-input"
+              placeholder="Enter debate topic..."
+              value={topicInput}
+              onChange={(e) => setTopicInput(e.target.value)}
+              onKeyPress={handleKeyPress}
+            />
+            <button className="set-topic-btn" onClick={handleSetTopic}>
+              Set Topic
+            </button>
+          </div>
         </div>
-      ))}
+
+        {/* Claims Section */}
+        <div className="claims-section">
+          <h2 className="section-title">📊 Fact Check Results</h2>
+
+          {claims.length === 0 ? (
+            <div className="empty-state">
+              No claims fact-checked yet. Waiting for debaters...
+            </div>
+          ) : (
+            <div className="claims-feed">
+              {claims.map((c, i) => (
+                <div key={i} className="claim-card">
+                  <div className="claim-header">
+                    <span className="speaker-badge">{c.speakerId}</span>
+                    <span className="timestamp">
+                      {new Date(c.timestamp).toLocaleTimeString()}
+                    </span>
+                  </div>
+
+                  <div className="claim-content">
+                    <p className="claim-text">
+                      <strong>Claim:</strong> {c.claim}
+                    </p>
+
+                    <div className="verdict-section">
+                      <span className={`verdict-badge verdict-${c.verdict?.toLowerCase()}`}>
+                        {c.verdict}
+                      </span>
+                      <span className="confidence">
+                        {Math.round(c.confidence * 100)}% confidence
+                      </span>
+                    </div>
+
+                    <p className="explanation">{c.explanation}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
