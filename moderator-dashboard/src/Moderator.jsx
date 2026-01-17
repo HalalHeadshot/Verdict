@@ -88,29 +88,56 @@ export default function Moderator() {
               {claims.map((c, i) => (
                 <div key={i} className="claim-card">
                   <div className="claim-header">
-                    <span className="speaker-badge">{c.speakerId}</span>
-                    <span className="timestamp">
-                      {new Date(c.timestamp).toLocaleTimeString()}
+                    <div className="speaker-info">
+                      <span className="speaker-badge">{c.speakerId}</span>
+                      <span className="timestamp">
+                        {new Date(c.timestamp).toLocaleTimeString()}
+                      </span>
+                    </div>
+                    <span className={`verdict-badge verdict-${c.verdict?.toLowerCase()}`}>
+                      {c.verdict}
                     </span>
                   </div>
 
                   <div className="claim-content">
-                    <p className="claim-text">
-                      <strong>Claim:</strong> {c.claim}
-                    </p>
+                    <div className="comparison-grid">
+                      <div className="comparison-box claim-box">
+                        <div className="box-label">🗣️ Claim</div>
+                        <p className="box-text">"{c.claim}"</p>
+                      </div>
 
-                    <div className="verdict-section">
-                      <span className={`verdict-badge verdict-${c.verdict?.toLowerCase()}`}>
-                        {c.verdict}
-                      </span>
-                      {typeof c.confidence === 'number' && (
-                        <span className="confidence">
-                          {Math.round(c.confidence * 100)}% confidence
-                        </span>
-                      )}
+                      <div className="comparison-box fact-box">
+                        <div className="box-label">🔍 Reality</div>
+                        <p className="box-text">{c.fact}</p>
+                      </div>
                     </div>
 
-                    <p className="explanation">{c.explanation}</p>
+                    <div className="analysis-section">
+                      <p className="deviation-text">
+                        <strong>Deviation:</strong> {c.deviation}
+                      </p>
+
+                      <div className="meta-footer">
+                        {c.source && (
+                          <div className="source-info">
+                            <span className="source-label">Source:</span>
+                            {c.sourceUrl ? (
+                              <a href={c.sourceUrl} target="_blank" rel="noopener noreferrer" className="source-link">
+                                {c.source} 🔗
+                              </a>
+                            ) : (
+                              <span className="source-text">{c.source}</span>
+                            )}
+                          </div>
+                        )}
+
+                        {typeof c.confidence === 'number' && (
+                          <span className="confidence-text">
+                            {Math.round(c.confidence * 100)}% confidence
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               ))}

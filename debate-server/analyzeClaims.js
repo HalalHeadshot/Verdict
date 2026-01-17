@@ -19,8 +19,12 @@ function safeParseGeminiResponse(text, claims) {
     return [
       {
         claim: claims.map(c => c.claim).join(" | "),
-        verdict: text.trim().startsWith("INACCURATE") ? "false" : "uncertain",
-        analysis: text.trim()
+        verdict: text.trim().startsWith("INACCURATE") ? "False" : "Uncertain",
+        fact: "Could not verify.",
+        deviation: "Analysis failed.",
+        source: "N/A",
+        sourceUrl: null,
+        confidence: 0
       }
     ];
   }
@@ -70,9 +74,13 @@ ${JSON.stringify(claims, null, 2)}
 Return ONLY valid JSON in this structure:
 [
   {
-    "claim": "...",
-    "analysis": "...",
-    "verdict": "true | false | uncertain"
+    "claim": "The exact claim text from statements",
+    "verdict": "True | False | Misleading | Uncertain",
+    "fact": "The actual statistic/fact from reliable sources",
+    "deviation": "Brief explanation of how the claim differs from reality (e.g. Claimed 20%, actual is 5%)",
+    "source": "Name of the source (e.g. World Bank, BLS)",
+    "sourceUrl": "A valid URL to the source (if available)",
+    "confidence": 0.95
   }
 ]
 `;
