@@ -14,7 +14,6 @@ export default function Moderator() {
       setClaims((prev) => [data, ...prev]);
     });
 
-    // Listen for topic updates (when another moderator sets it)
     socket.on("TOPIC_UPDATE", (data) => {
       setCurrentTopic(data.topic);
     });
@@ -40,7 +39,7 @@ export default function Moderator() {
   };
 
   return (
-    <div style={{ width: '100%', minHeight: '100vh', position: 'relative' }}>
+    <div style={{ width: "100%", minHeight: "100vh", position: "relative" }}>
       <FlickeringGrid
         className="absolute inset-0 w-full h-full"
         squareSize={4}
@@ -50,8 +49,8 @@ export default function Moderator() {
         flickerChance={0.1}
       />
 
-      <div className="moderator-container" style={{ position: 'relative', zIndex: 1 }}>
-        {/* Topic Control Section */}
+      <div className="moderator-container" style={{ position: "relative", zIndex: 1 }}>
+        {/* Topic Control */}
         <div className="topic-control-card">
           <h1 className="moderator-title">🧑‍⚖️ Moderator Panel</h1>
 
@@ -100,6 +99,7 @@ export default function Moderator() {
                   </div>
 
                   <div className="claim-content">
+                    {/* Claim vs Fact */}
                     <div className="comparison-grid">
                       <div className="comparison-box claim-box">
                         <div className="box-label">🗣️ Claim</div>
@@ -112,17 +112,44 @@ export default function Moderator() {
                       </div>
                     </div>
 
+                    {/* Deviations */}
                     <div className="analysis-section">
-                      <p className="deviation-text">
-                        <strong>Deviation:</strong> {c.deviation}
-                      </p>
+                      {/* Topic Deviation */}
+                      {typeof c.topicDeviationScore === "number" && (
+                        <p className="deviation-text">
+                          <strong>Topic Deviation:</strong>{" "}
+                          {Math.round(c.topicDeviationScore * 100)}%
+                          <br />
+                          <span className="deviation-reason">
+                            {c.topicDeviationReasoning}
+                          </span>
+                        </p>
+                      )}
 
+                      {/* Fact Deviation */}
+                      {typeof c.factDeviationScore === "number" && (
+                        <p className="deviation-text">
+                          <strong>Fact Deviation:</strong>{" "}
+                          {Math.round(c.factDeviationScore * 100)}%
+                          <br />
+                          <span className="deviation-reason">
+                            {c.factDeviationReasoning}
+                          </span>
+                        </p>
+                      )}
+
+                      {/* Source & Confidence */}
                       <div className="meta-footer">
                         {c.source && (
                           <div className="source-info">
                             <span className="source-label">Source:</span>
                             {c.sourceUrl ? (
-                              <a href={c.sourceUrl} target="_blank" rel="noopener noreferrer" className="source-link">
+                              <a
+                                href={c.sourceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="source-link"
+                              >
                                 {c.source} 🔗
                               </a>
                             ) : (
@@ -131,9 +158,10 @@ export default function Moderator() {
                           </div>
                         )}
 
-                        {typeof c.confidence === 'number' && (
+                        {typeof c.sourceConfidence === "number" && (
                           <span className="confidence-text">
-                            {Math.round(c.confidence * 100)}% confidence
+                            Source confidence:{" "}
+                            {Math.round(c.sourceConfidence * 100)}%
                           </span>
                         )}
                       </div>
