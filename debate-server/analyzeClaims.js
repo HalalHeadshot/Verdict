@@ -19,16 +19,7 @@ function safeParseGeminiResponse(text, claims) {
       claim: item.claim || item.Claim || claims.map(c => c.claim).join(" | "),
       verdict: item.verdict || item.Verdict || "Uncertain",
 
-      // 🔹 Topic deviation
-      topicDeviationScore:
-        typeof item.topicDeviationScore === "number"
-          ? Math.min(Math.max(item.topicDeviationScore, 0), 1)
-          : 0.5,
-
-      topicDeviationReasoning:
-        item.topicDeviationReasoning || "No topic deviation reasoning provided.",
-
-      // 🔹 Fact deviation (NEW)
+      // 🔹 FACT deviation ONLY
       factDeviationScore:
         typeof item.factDeviationScore === "number"
           ? Math.min(Math.max(item.factDeviationScore, 0), 1)
@@ -53,17 +44,12 @@ function safeParseGeminiResponse(text, claims) {
     }
 
     return [normalize(parsed)];
-
   } catch {
     // 🔹 Plain-text fallback
     return [
       {
         claim: claims.map(c => c.claim).join(" | "),
         verdict: text.toUpperCase().includes("INACCURATE") ? "False" : "Uncertain",
-
-        topicDeviationScore: 0.5,
-        topicDeviationReasoning:
-          "Topic relevance could not be determined from unstructured AI output.",
 
         factDeviationScore: 0.5,
         factDeviationReasoning:
@@ -78,7 +64,7 @@ function safeParseGeminiResponse(text, claims) {
   }
 }
 
-async function analyzeClaims(transcript, currentTopic = "") {
+async function analyzeClaims(transcript) {
   if (!GEMINI_API_KEY) {
     throw new Error("GEMINI_API_KEY not found");
   }
@@ -90,33 +76,23 @@ async function analyzeClaims(transcript, currentTopic = "") {
     return [];
   }
 
-  // 🔥 UPDATED PROMPT (topic + fact deviation)
+  // 🔥 UPDATED PROMPT — NO TOPIC DEVIATION
   const prompt = `
-You are a real-time debate fact-checking and moderation assistant.
+You are a real-time debate fact-checking assistant.
 
-You will receive:
-- The CURRENT DEBATE TOPIC
-- A list of fact-checkable claims extracted from a debater's statement
+You will receive a list of fact-checkable claims extracted from a debater's statement.
 
 Your tasks:
 1. Evaluate the factual accuracy of each claim.
 2. Measure how far each claim deviates from established facts.
-3. Measure how far each claim deviates from the debate topic.
-4. Provide reliable citations whenever possible.
-5. Remain strictly neutral and evidence-based.
+3. Provide reliable citations whenever possible.
+4. Remain strictly neutral and evidence-based.
 
 Scoring definitions:
-- topicDeviationScore (0 to 1):
-  0 = fully on-topic
-  1 = completely off-topic
-
 - factDeviationScore (0 to 1):
   0 = factually accurate
   1 = factually false
   Values between indicate misleading or partially incorrect claims.
-
-CURRENT TOPIC:
-"${currentTopic || "No topic provided"}"
 
 CLAIMS:
 ${JSON.stringify(claims, null, 2)}
@@ -126,9 +102,6 @@ Return ONLY valid JSON in this structure:
   {
     "claim": "Exact claim text",
     "verdict": "True | False | Misleading | Uncertain",
-
-    "topicDeviationScore": 0.0,
-    "topicDeviationReasoning": "Short explanation",
 
     "factDeviationScore": 0.0,
     "factDeviationReasoning": "Short explanation",

@@ -9,6 +9,9 @@ export default function Debater({ speakerId: initialSpeakerId }) {
   const recognitionRef = useRef(null);
   const debounceTimerRef = useRef(null);
 
+  /* =======================
+     STATE
+  ======================= */
   const [listening, setListening] = useState(false);
   const [liveText, setLiveText] = useState("");
   const [accumulatedText, setAccumulatedText] = useState("");
@@ -22,11 +25,12 @@ export default function Debater({ speakerId: initialSpeakerId }) {
   const [cooldown, setCooldown] = useState(0);
 
   /* =======================
-     SEND TRANSCRIPT
+     SEND TRANSCRIPT (FIXED)
   ======================= */
   const sendTranscript = () => {
     if (!accumulatedText.trim() || !canSend) return;
 
+    // Cancel pending auto-send
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
@@ -59,26 +63,21 @@ export default function Debater({ speakerId: initialSpeakerId }) {
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
-
-        if (event.results[i].isFinal) {
-          finalChunk += transcript + " ";
-        } else {
-          interim += transcript;
-        }
+        if (event.results[i].isFinal) finalChunk += transcript + " ";
+        else interim += transcript;
       }
 
       setLiveText(interim);
 
       if (finalChunk) {
         setLiveText("");
-
         setAccumulatedText(prev => {
           const newText = prev + finalChunk;
 
           if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
 
           debounceTimerRef.current = setTimeout(() => {
-            if (canSend) {
+            if (canSend && !listening) {
               socket.emit("TRANSCRIPT_FINAL", {
                 speakerId: selectedSpeaker,
                 text: newText.trim()
@@ -93,7 +92,7 @@ export default function Debater({ speakerId: initialSpeakerId }) {
     };
 
     recognitionRef.current = recognition;
-  }, [selectedSpeaker, canSend]);
+  }, [selectedSpeaker, canSend, listening]);
 
   /* =======================
      SOCKET LISTENERS
@@ -156,140 +155,137 @@ export default function Debater({ speakerId: initialSpeakerId }) {
   const isMicLocked = currentSpeaker && currentSpeaker !== selectedSpeaker;
 
   /* =======================
-     LOGIN SCREEN
+     LOGIN SCREEN (UNCHANGED)
   ======================= */
   if (!selectedSpeaker) {
-  return (
-    <div
+    return (
+      <div
+  style={{
+    width: "100%",
+    minHeight: "100vh",
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden"
+  }}
+>
+  {/* Background */}
+  <FlickeringGrid className="absolute inset-0 w-full h-full" />
+
+  {/* Login Card */}
+  <div
+    style={{
+      zIndex: 1,
+      padding: "3rem 3.5rem",
+      borderRadius: "28px",
+      background: "rgba(15, 23, 42, 0.85)", // slate-900 glass
+      backdropFilter: "blur(20px)",
+      WebkitBackdropFilter: "blur(20px)",
+      border: "1px solid rgba(255,255,255,0.12)",
+      boxShadow:
+        "0 25px 50px -12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05)",
+      textAlign: "center",
+      minWidth: "360px"
+    }}
+  >
+    {/* Title */}
+    <h1
       style={{
-        width: "100%",
-        minHeight: "100vh",
-        position: "relative",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        overflow: "hidden"
+        marginBottom: "0.75rem",
+        fontSize: "2.4rem",
+        fontWeight: 800,
+        letterSpacing: "-0.02em",
+        background: "linear-gradient(90deg, #6366f1, #a855f7)",
+        WebkitBackgroundClip: "text",
+        WebkitTextFillColor: "transparent"
       }}
     >
-      {/* Background */}
-      <FlickeringGrid className="absolute inset-0 w-full h-full" />
+      🎙️ Select Debater
+    </h1>
 
-      {/* Login Card */}
-      <div
+    {/* Subtitle */}
+    <p
+      style={{
+        marginBottom: "2.5rem",
+        fontSize: "0.95rem",
+        opacity: 0.75
+      }}
+    >
+      Choose your role to join the live debate
+    </p>
+
+    {/* Buttons */}
+    <div
+      style={{
+        display: "flex",
+        gap: "1.25rem",
+        justifyContent: "center"
+      }}
+    >
+      {/* Debater A */}
+      <button
+        onClick={() => setSelectedSpeaker("Debater A")}
         style={{
-          zIndex: 1,
-          padding: "3rem 3.5rem",
-          borderRadius: "28px",
-          background: "rgba(15, 23, 42, 0.85)", // slate-900 glass
-          backdropFilter: "blur(20px)",
-          WebkitBackdropFilter: "blur(20px)",
-          border: "1px solid rgba(255,255,255,0.12)",
-          boxShadow:
-            "0 25px 50px -12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05)",
-          textAlign: "center",
-          minWidth: "360px"
+          padding: "1rem 2.2rem",
+          fontSize: "1.05rem",
+          fontWeight: 700,
+          borderRadius: "16px",
+          border: "none",
+          cursor: "pointer",
+          color: "white",
+          background: "linear-gradient(135deg, #6366f1, #4f46e5)",
+          boxShadow: "0 12px 20px -8px rgba(99,102,241,0.6)",
+          transition: "all 0.25s ease"
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = "translateY(-3px) scale(1.03)";
+          e.currentTarget.style.boxShadow =
+            "0 20px 30px -10px rgba(99,102,241,0.8)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = "none";
+          e.currentTarget.style.boxShadow =
+            "0 12px 20px -8px rgba(99,102,241,0.6)";
         }}
       >
-        {/* Title */}
-        <h1
-          style={{
-            marginBottom: "0.75rem",
-            fontSize: "2.4rem",
-            fontWeight: 800,
-            letterSpacing: "-0.02em",
-            background: "linear-gradient(90deg, #6366f1, #a855f7)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent"
-          }}
-        >
-          🎙️ Select Debater
-        </h1>
+        Debater A 🔵
+      </button>
 
-        <p
-          style={{
-            marginBottom: "2.5rem",
-            fontSize: "0.95rem",
-            opacity: 0.75
-          }}
-        >
-          Choose your role to join the debate
-        </p>
-
-        {/* Buttons */}
-        <div
-          style={{
-            display: "flex",
-            gap: "1.25rem",
-            justifyContent: "center"
-          }}
-        >
-          {/* Debater A */}
-          <button
-            onClick={() => setSelectedSpeaker("Debater A")}
-            style={{
-              padding: "1rem 2.2rem",
-              fontSize: "1.05rem",
-              fontWeight: 700,
-              borderRadius: "16px",
-              border: "none",
-              cursor: "pointer",
-              color: "white",
-              background:
-                "linear-gradient(135deg, #6366f1, #4f46e5)",
-              boxShadow:
-                "0 12px 20px -8px rgba(99,102,241,0.6)",
-              transition: "all 0.25s ease"
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = "translateY(-3px) scale(1.03)";
-              e.currentTarget.style.boxShadow =
-                "0 20px 30px -10px rgba(99,102,241,0.8)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "none";
-              e.currentTarget.style.boxShadow =
-                "0 12px 20px -8px rgba(99,102,241,0.6)";
-            }}
-          >
-            Debater A 🔵
-          </button>
-
-          {/* Debater B */}
-          <button
-            onClick={() => setSelectedSpeaker("Debater B")}
-            style={{
-              padding: "1rem 2.2rem",
-              fontSize: "1.05rem",
-              fontWeight: 700,
-              borderRadius: "16px",
-              border: "none",
-              cursor: "pointer",
-              color: "white",
-              background:
-                "linear-gradient(135deg, #ec4899, #db2777)",
-              boxShadow:
-                "0 12px 20px -8px rgba(236,72,153,0.6)",
-              transition: "all 0.25s ease"
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = "translateY(-3px) scale(1.03)";
-              e.currentTarget.style.boxShadow =
-                "0 20px 30px -10px rgba(236,72,153,0.8)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "none";
-              e.currentTarget.style.boxShadow =
-                "0 12px 20px -8px rgba(236,72,153,0.6)";
-            }}
-          >
-            Debater B 🔴
-          </button>
-        </div>
-      </div>
+      {/* Debater B */}
+      <button
+        onClick={() => setSelectedSpeaker("Debater B")}
+        style={{
+          padding: "1rem 2.2rem",
+          fontSize: "1.05rem",
+          fontWeight: 700,
+          borderRadius: "16px",
+          border: "none",
+          cursor: "pointer",
+          color: "white",
+          background: "linear-gradient(135deg, #ec4899, #db2777)",
+          boxShadow: "0 12px 20px -8px rgba(236,72,153,0.6)",
+          transition: "all 0.25s ease"
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = "translateY(-3px) scale(1.03)";
+          e.currentTarget.style.boxShadow =
+            "0 20px 30px -10px rgba(236,72,153,0.8)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = "none";
+          e.currentTarget.style.boxShadow =
+            "0 12px 20px -8px rgba(236,72,153,0.6)";
+        }}
+      >
+        Debater B 🔴
+      </button>
     </div>
-  );
-}
+  </div>
+</div>
 
+    );
+  }
 
   /* =======================
      MAIN UI
@@ -318,7 +314,6 @@ export default function Debater({ speakerId: initialSpeakerId }) {
             <div className={`transcription-text ${liveText || accumulatedText ? "live" : "empty"}`}>
               {liveText ? (
                 <>
-                  {/* FINAL TEXT → DECRYPT ANIMATION */}
                   <span style={{ opacity: 0.7 }}>
                     <DecryptedText
                       text={accumulatedText}
@@ -327,8 +322,6 @@ export default function Debater({ speakerId: initialSpeakerId }) {
                       animateOn="view"
                     />
                   </span>
-
-                  {/* LIVE TEXT → NORMAL */}
                   <span>{liveText}</span>
                 </>
               ) : accumulatedText ? (
@@ -343,11 +336,42 @@ export default function Debater({ speakerId: initialSpeakerId }) {
               )}
             </div>
 
-            {/* SEND BUTTON */}
+            {/* ✅ FIXED SEND NOW BUTTON (UI + LOGIC) */}
             {accumulatedText && !listening && (
-              <button onClick={sendTranscript} disabled={!canSend}>
-                Send Now 📤
-              </button>
+              <div style={{ marginTop: "14px", display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  onClick={sendTranscript}
+                  disabled={!canSend}
+                  style={{
+                    padding: "8px 18px",
+                    borderRadius: "999px",
+                    fontSize: "0.9rem",
+                    fontWeight: 600,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    background: canSend
+                      ? "linear-gradient(to right, #6366f1, #a855f7)"
+                      : "rgba(255,255,255,0.08)",
+                    color: canSend ? "#fff" : "#9ca3af",
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    cursor: canSend ? "pointer" : "not-allowed",
+                    boxShadow: canSend
+                      ? "0 8px 20px rgba(99,102,241,0.35)"
+                      : "none",
+                    transition: "all 0.25s ease",
+                    backdropFilter: "blur(10px)"
+                  }}
+                >
+                  Send Now
+                </button>
+              </div>
+            )}
+
+            {!canSend && (
+              <div style={{ color: "#ef4444", marginTop: "8px", fontSize: "0.8rem" }}>
+                Rate limited — wait {cooldown}s
+              </div>
             )}
           </div>
         </div>
