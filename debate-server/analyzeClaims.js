@@ -87,7 +87,7 @@ Return ONLY valid JSON in this structure:
 
   const client = new GoogleGenerativeAI(GEMINI_API_KEY);
   const model = client.getGenerativeModel({
-    model: "gemini-2.5-flash-lite"
+    model: "gemini-2.5-flash"
   });
 
   const res = await model.generateContent(prompt);

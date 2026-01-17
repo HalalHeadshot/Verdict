@@ -4,7 +4,7 @@ import FlickeringGrid from "./FlickeringGrid";
 
 const socket = io("http://localhost:2000");
 
-export default function Debater({ speakerId }) {
+export default function Debater({ speakerId: initialSpeakerId }) {
   const recognitionRef = useRef(null);
   const debounceTimerRef = useRef(null);
 
@@ -13,6 +13,11 @@ export default function Debater({ speakerId }) {
   const [accumulatedText, setAccumulatedText] = useState(""); // Buffer for unsent text
   const [topic, setTopic] = useState("Waiting for topic...");
   const [statements, setStatements] = useState([]);
+
+  // Speaker Selection State
+  // If initialSpeakerId is passed prop, use it, otherwise null (login screen)
+  const [selectedSpeaker, setSelectedSpeaker] = useState(initialSpeakerId || null);
+  const [currentSpeaker, setCurrentSpeaker] = useState(null);
 
   // Rate limiting state
   const [canSend, setCanSend] = useState(true);
@@ -30,7 +35,7 @@ export default function Debater({ speakerId }) {
 
     // 🔥 SEND FINAL TRANSCRIPT TO SERVER
     socket.emit("TRANSCRIPT_FINAL", {
-      speakerId,
+      speakerId: selectedSpeaker,
       text: accumulatedText.trim()
     });
 
@@ -38,6 +43,9 @@ export default function Debater({ speakerId }) {
   };
 
   useEffect(() => {
+    // Wait for speaker selection
+    if (!selectedSpeaker) return;
+
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -73,18 +81,9 @@ export default function Debater({ speakerId }) {
 
           // Auto-send after 3 seconds of silence
           debounceTimerRef.current = setTimeout(() => {
-            // We can't access updated state in timeout easily without ref or wrapper, 
-            // but since we update state, let's trigger a send effect or use a ref.
-            // Actually, cleaner to just call a function that reads the latest ref? 
-            // React state closure issue. Let's send the *combined* text from here? 
-            // No, better to trigger the send function which needs access to 'accumulatedText'.
-            // A common pattern: use a ref to track text for the timeout, or just use the functional update 'prev' logic?
-            // Simplest: The timeout just calls a function that sets a "shouldSend" flag or similar. 
-            // OR, better yet: just emit the event directly here using the value we just computed.
-
             if (canSend) {
               socket.emit("TRANSCRIPT_FINAL", {
-                speakerId,
+                speakerId: selectedSpeaker,
                 text: newText.trim()
               });
               setAccumulatedText(""); // Clear buffer
@@ -96,20 +95,16 @@ export default function Debater({ speakerId }) {
       }
     };
 
+    // Handle mic stop explicitly to sync state if browser stops it
+    recognition.onend = () => {
+      if (listening) {
+        // If meant to be listening but stopped (network error etc),
+        // We can try to restart or just accept it.
+      }
+    };
+
     recognitionRef.current = recognition;
-  }, [speakerId, canSend]); // Re-bind if canSend changes so closure is fresh? Or handle via refs.
-  // Note: Re-creating recognition on 'canSend' change might interrupt speech. 
-  // Better to use a Ref for 'canSend' or the accumulated text logic above. 
-  // Let's refine the timeout logic to be robust.
-
-  // --- REFINED LISTENER LOGIC TO AVOID COMPLEXITY ---
-  // We'll keep it simple: The timeout is set, but we also check checks in the render or Effect?
-  // Actually, let's just use the `accumulatedText` state logic with a useEffect for debouncing?
-  // No, `onresult` is callback based. 
-  // Let's fix the logic inside `onresult` in the next replacement step if needed, 
-  // but for now I will use a Ref for `accumulatedText` to solve closure issues in the timeout.
-
-  // Actually, I'll rewrite the whole component with the Ref pattern for stability.
+  }, [selectedSpeaker, canSend]); // Re-bind if speaker changes
 
   // Socket listeners
   useEffect(() => {
@@ -119,6 +114,10 @@ export default function Debater({ speakerId }) {
 
     socket.on("NEW_STATEMENT", (statement) => {
       setStatements((prev) => [statement, ...prev]);
+    });
+
+    socket.on("SPEAKER_UPDATE", (data) => {
+      setCurrentSpeaker(data.currentSpeaker);
     });
 
     socket.on("FACT_RESULT", (data) => {
@@ -137,32 +136,12 @@ export default function Debater({ speakerId }) {
             return prev - 1;
           });
         }, 1000);
-      } else {
-        // It's a normal fact result, we can ignore or add to list? 
-        // The original code didn't seem to add fact results to the list, 
-        // only the Moderator did. Wait, looking at original code... 
-        // Ah, Debater didn't use FACT_RESULT for display list, only Moderator.
-        // But Debater *listens* for NEW_STATEMENT. 
-        // The server emits FACT_RESULT, does it emit NEW_STATEMENT?
-        // Checking server code... it emits FACT_RESULT to everyone?
-        // Server.js: io.emit("FACT_RESULT", ...)
-        // It seems Debater used to listen to NEW_STATEMENT but server emits FACT_RESULT?
-        // Wait, previous summary said "Server emits: FACT_RESULT, TOPIC_UPDATE".
-        // So Debater should listen to FACT_RESULT if it wants to show the feed.
-        // Original code: socket.on("NEW_STATEMENT", ...) -> setStatements
-        // But server.js emits FACT_RESULT. 
-        // CHECK: Did I miss where NEW_STATEMENT comes from? 
-        // Maybe it was never working? OR maybe I need to fix that too?
-        // Let's stick to fixing rate limit for now, but I'll add handling for FACT_RESULT text in chat too 
-        // if we want the debater to see their own text. 
-        // Actually, let's just treat FACT_RESULT as a statement if it's not rate limited.
-        if (data.verdict !== "rate_limited") {
-          setStatements(prev => [{
-            speakerId: data.speakerId,
-            text: data.claim,
-            timestamp: data.timestamp
-          }, ...prev]);
-        }
+      } else if (data.verdict !== "rate_limited") {
+        setStatements(prev => [{
+          speakerId: data.speakerId,
+          text: data.claim,
+          timestamp: data.timestamp
+        }, ...prev]);
       }
     });
 
@@ -170,16 +149,22 @@ export default function Debater({ speakerId }) {
       socket.off("TOPIC_UPDATE");
       socket.off("NEW_STATEMENT");
       socket.off("FACT_RESULT");
+      socket.off("SPEAKER_UPDATE");
     };
   }, []);
 
   const toggleMic = () => {
+    // Prevent toggling if someone else is speaking
+    if (currentSpeaker && currentSpeaker !== selectedSpeaker) return;
+
     if (!listening) {
       if (recognitionRef.current) try { recognitionRef.current.start(); } catch (e) { }
       setListening(true);
+      socket.emit("CLAIM_MIC", selectedSpeaker);
     } else {
       if (recognitionRef.current) try { recognitionRef.current.stop(); } catch (e) { }
       setListening(false);
+      socket.emit("RELEASE_MIC", selectedSpeaker);
     }
   };
 
@@ -187,6 +172,45 @@ export default function Debater({ speakerId }) {
     const date = new Date(timestamp);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
+
+  // --- RENDER LOGIN SCREEN ---
+  if (!selectedSpeaker) {
+    return (
+      <div style={{ width: '100%', minHeight: '100vh', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <FlickeringGrid
+          className="absolute inset-0 w-full h-full"
+          squareSize={4}
+          gridGap={6}
+          color="#6366f1"
+          maxOpacity={0.3}
+          flickerChance={0.1}
+        />
+        <div className="login-card" style={{ zIndex: 1, padding: '3rem', background: 'rgba(30, 41, 59, 0.9)', borderRadius: '24px', border: '1px solid rgba(255, 255, 255, 0.1)', textAlign: 'center', backdropFilter: 'blur(20px)', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)' }}>
+          <h1 style={{ marginBottom: '2rem', fontSize: '2.5rem', fontWeight: '800', background: 'linear-gradient(to right, #6366f1, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>🎙️ Select Debater</h1>
+          <div style={{ display: 'flex', gap: '1.5rem', justifyContent: 'center' }}>
+            <button
+              onClick={() => setSelectedSpeaker("Debater A")}
+              style={{ padding: '1rem 2rem', fontSize: '1.2rem', cursor: 'pointer', borderRadius: '12px', border: 'none', background: '#6366f1', color: 'white', fontWeight: 'bold', transition: 'transform 0.2s', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}
+              onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
+              onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
+            >
+              Debater A 🔵
+            </button>
+            <button
+              onClick={() => setSelectedSpeaker("Debater B")}
+              style={{ padding: '1rem 2rem', fontSize: '1.2rem', cursor: 'pointer', borderRadius: '12px', border: 'none', background: '#ec4899', color: 'white', fontWeight: 'bold', transition: 'transform 0.2s', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}
+              onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
+              onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
+            >
+              Debater B 🔴
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const isMicLocked = currentSpeaker && currentSpeaker !== selectedSpeaker;
 
   return (
     <div style={{ width: '100%', minHeight: '100vh', position: 'relative' }}>
@@ -200,6 +224,10 @@ export default function Debater({ speakerId }) {
       />
 
       <div className="debater-container" style={{ position: 'relative', zIndex: 1 }}>
+        <div className="speaker-badge-header" style={{ position: 'absolute', top: '1rem', right: '1rem', background: 'rgba(255,255,255,0.1)', padding: '0.5rem 1rem', borderRadius: '20px', backdropFilter: 'blur(5px)' }}>
+          👤 You are: <strong>{selectedSpeaker}</strong>
+        </div>
+
         {/* Topic Card */}
         <div className="topic-card">
           <div className="topic-label">Current Topic</div>
@@ -209,16 +237,24 @@ export default function Debater({ speakerId }) {
         {/* Transcription Section */}
         <div className="transcription-section">
           <button
-            className={`mic-button ${listening ? 'listening' : ''}`}
+            className={`mic-button ${listening ? 'listening' : ''} ${isMicLocked ? 'locked' : ''}`}
             onClick={toggleMic}
+            disabled={isMicLocked}
             aria-label={listening ? "Stop recording" : "Start recording"}
+            style={{
+              opacity: isMicLocked ? 0.5 : 1,
+              cursor: isMicLocked ? 'not-allowed' : 'pointer',
+              background: isMicLocked ? '#374151' : undefined
+            }}
           >
-            {listening ? "🛑" : "🎤"}
+            {isMicLocked ? "🔒" : listening ? "🛑" : "🎤"}
           </button>
 
           <div className="transcription-display">
             <div className="transcription-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>{listening ? "Live Transcription" : "Press mic to start"}</span>
+              <span>
+                {listening ? "Live Transcription" : isMicLocked ? `${currentSpeaker} is speaking...` : "Press mic to start"}
+              </span>
               {!canSend && <span style={{ color: '#ef4444', fontWeight: 'bold' }}>⚠️ Rate Limit: {cooldown}s</span>}
             </div>
 
@@ -236,7 +272,7 @@ export default function Debater({ speakerId }) {
             </div>
 
             {/* Manual Send Controls */}
-            {accumulatedText && (
+            {accumulatedText && !isMicLocked && !listening && (
               <div style={{ marginTop: '10px', display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <div style={{ fontSize: '0.8rem', opacity: 0.7 }}>
                   {debounceTimerRef.current ? "Sending in a few seconds..." : "Ready to send"}

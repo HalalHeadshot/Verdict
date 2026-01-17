@@ -19,8 +19,32 @@ const io = new Server(server, {
 const lastRequestTime = new Map();
 const COOLDOWN_MS = 15000; // 15 seconds per debater
 
+// 🎤 TURN TAKING STATE
+let currentSpeaker = null;
+
 io.on("connection", (socket) => {
   console.log("🟢 Connected:", socket.id);
+
+  // Send current speaker state on connect
+  socket.emit("SPEAKER_UPDATE", { currentSpeaker });
+
+  // Handle Mic Claim (Locking)
+  socket.on("CLAIM_MIC", (speakerId) => {
+    if (currentSpeaker === null || currentSpeaker === speakerId) {
+      currentSpeaker = speakerId;
+      console.log(`🎤 Mic claimed by: ${speakerId}`);
+      io.emit("SPEAKER_UPDATE", { currentSpeaker });
+    }
+  });
+
+  // Handle Mic Release (Unlocking)
+  socket.on("RELEASE_MIC", (speakerId) => {
+    if (currentSpeaker === speakerId) {
+      currentSpeaker = null;
+      console.log(`🎤 Mic released by: ${speakerId}`);
+      io.emit("SPEAKER_UPDATE", { currentSpeaker });
+    }
+  });
 
   socket.on("TRANSCRIPT_FINAL", async ({ speakerId, text }) => {
     const now = Date.now();
@@ -53,9 +77,7 @@ io.on("connection", (socket) => {
       for (const result of results) {
         io.emit("FACT_RESULT", {
           speakerId,
-          claim: result.claim,
-          verdict: result.verdict,
-          analysis: result.analysis,
+          ...result, // 🔥 PASS EVERYTHING (fact, deviation, source, etc.) from analyzeClaims
           timestamp: Date.now()
         });
       }
