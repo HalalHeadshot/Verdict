@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
+import { motion, AnimatePresence } from "motion/react";
 import FlickeringGrid from "./FlickeringGrid";
 import DecryptedText from "./DecryptedText";
 
@@ -8,29 +9,35 @@ const socket = io("http://localhost:2000");
 export default function Debater({ speakerId: initialSpeakerId }) {
   const recognitionRef = useRef(null);
   const debounceTimerRef = useRef(null);
+  const transcriptRef = useRef(null);
 
-  /* =======================
-     STATE
-  ======================= */
+  /* ================= STATE ================= */
   const [listening, setListening] = useState(false);
   const [liveText, setLiveText] = useState("");
   const [accumulatedText, setAccumulatedText] = useState("");
-  const [topic, setTopic] = useState("Waiting for topic...");
-  const [statements, setStatements] = useState([]);
 
-  const [selectedSpeaker, setSelectedSpeaker] = useState(initialSpeakerId || null);
+  const [topic, setTopic] = useState("Waiting for topic...");
+  const [selectedSpeaker, setSelectedSpeaker] = useState(
+    initialSpeakerId || null
+  );
   const [currentSpeaker, setCurrentSpeaker] = useState(null);
 
   const [canSend, setCanSend] = useState(true);
   const [cooldown, setCooldown] = useState(0);
 
-  /* =======================
-     SEND TRANSCRIPT (FIXED)
-  ======================= */
+  const [allStatements, setAllStatements] = useState([]);
+
+  /* ================= AUTO SCROLL ================= */
+  useEffect(() => {
+    if (transcriptRef.current) {
+      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+    }
+  }, [liveText, accumulatedText]);
+
+  /* ================= SEND ================= */
   const sendTranscript = () => {
     if (!accumulatedText.trim() || !canSend) return;
 
-    // Cancel pending auto-send
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
@@ -44,9 +51,7 @@ export default function Debater({ speakerId: initialSpeakerId }) {
     setAccumulatedText("");
   };
 
-  /* =======================
-     SPEECH RECOGNITION
-  ======================= */
+  /* ================= SPEECH ================= */
   useEffect(() => {
     if (!selectedSpeaker) return;
 
@@ -94,12 +99,9 @@ export default function Debater({ speakerId: initialSpeakerId }) {
     recognitionRef.current = recognition;
   }, [selectedSpeaker, canSend, listening]);
 
-  /* =======================
-     SOCKET LISTENERS
-  ======================= */
+  /* ================= SOCKET ================= */
   useEffect(() => {
     socket.on("TOPIC_UPDATE", (data) => setTopic(data.topic || data));
-
     socket.on("SPEAKER_UPDATE", (data) =>
       setCurrentSpeaker(data.currentSpeaker)
     );
@@ -110,34 +112,36 @@ export default function Debater({ speakerId: initialSpeakerId }) {
         setCooldown(15);
 
         const timer = setInterval(() => {
-          setCooldown(prev => {
-            if (prev <= 1) {
+          setCooldown(c => {
+            if (c <= 1) {
               clearInterval(timer);
               setCanSend(true);
               return 0;
             }
-            return prev - 1;
+            return c - 1;
           });
         }, 1000);
-      } else {
-        setStatements(prev => [{
+        return;
+      }
+
+      setAllStatements(prev => [
+        {
           speakerId: data.speakerId,
           text: data.claim,
           timestamp: data.timestamp
-        }, ...prev]);
-      }
+        },
+        ...prev
+      ]);
     });
 
     return () => {
       socket.off("TOPIC_UPDATE");
-      socket.off("FACT_RESULT");
       socket.off("SPEAKER_UPDATE");
+      socket.off("FACT_RESULT");
     };
   }, []);
 
-  /* =======================
-     MIC CONTROL
-  ======================= */
+  /* ================= MIC ================= */
   const toggleMic = () => {
     if (currentSpeaker && currentSpeaker !== selectedSpeaker) return;
 
@@ -154,240 +158,122 @@ export default function Debater({ speakerId: initialSpeakerId }) {
 
   const isMicLocked = currentSpeaker && currentSpeaker !== selectedSpeaker;
 
-  /* =======================
-     LOGIN SCREEN (UNCHANGED)
-  ======================= */
+  /* ================= LOGIN ================= */
   if (!selectedSpeaker) {
     return (
-      <div
-  style={{
-    width: "100%",
-    minHeight: "100vh",
-    position: "relative",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden"
-  }}
->
-  {/* Background */}
-  <FlickeringGrid className="absolute inset-0 w-full h-full" />
-
-  {/* Login Card */}
-  <div
-    style={{
-      zIndex: 1,
-      padding: "3rem 3.5rem",
-      borderRadius: "28px",
-      background: "rgba(15, 23, 42, 0.85)", // slate-900 glass
-      backdropFilter: "blur(20px)",
-      WebkitBackdropFilter: "blur(20px)",
-      border: "1px solid rgba(255,255,255,0.12)",
-      boxShadow:
-        "0 25px 50px -12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05)",
-      textAlign: "center",
-      minWidth: "360px"
-    }}
-  >
-    {/* Title */}
-    <h1
-      style={{
-        marginBottom: "0.75rem",
-        fontSize: "2.4rem",
-        fontWeight: 800,
-        letterSpacing: "-0.02em",
-        background: "linear-gradient(90deg, #6366f1, #a855f7)",
-        WebkitBackgroundClip: "text",
-        WebkitTextFillColor: "transparent"
-      }}
-    >
-      🎙️ Select Debater
-    </h1>
-
-    {/* Subtitle */}
-    <p
-      style={{
-        marginBottom: "2.5rem",
-        fontSize: "0.95rem",
-        opacity: 0.75
-      }}
-    >
-      Choose your role to join the live debate
-    </p>
-
-    {/* Buttons */}
-    <div
-      style={{
-        display: "flex",
-        gap: "1.25rem",
-        justifyContent: "center"
-      }}
-    >
-      {/* Debater A */}
-      <button
-        onClick={() => setSelectedSpeaker("Debater A")}
-        style={{
-          padding: "1rem 2.2rem",
-          fontSize: "1.05rem",
-          fontWeight: 700,
-          borderRadius: "16px",
-          border: "none",
-          cursor: "pointer",
-          color: "white",
-          background: "linear-gradient(135deg, #6366f1, #4f46e5)",
-          boxShadow: "0 12px 20px -8px rgba(99,102,241,0.6)",
-          transition: "all 0.25s ease"
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.transform = "translateY(-3px) scale(1.03)";
-          e.currentTarget.style.boxShadow =
-            "0 20px 30px -10px rgba(99,102,241,0.8)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.transform = "none";
-          e.currentTarget.style.boxShadow =
-            "0 12px 20px -8px rgba(99,102,241,0.6)";
-        }}
-      >
-        Debater A 🔵
-      </button>
-
-      {/* Debater B */}
-      <button
-        onClick={() => setSelectedSpeaker("Debater B")}
-        style={{
-          padding: "1rem 2.2rem",
-          fontSize: "1.05rem",
-          fontWeight: 700,
-          borderRadius: "16px",
-          border: "none",
-          cursor: "pointer",
-          color: "white",
-          background: "linear-gradient(135deg, #ec4899, #db2777)",
-          boxShadow: "0 12px 20px -8px rgba(236,72,153,0.6)",
-          transition: "all 0.25s ease"
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.transform = "translateY(-3px) scale(1.03)";
-          e.currentTarget.style.boxShadow =
-            "0 20px 30px -10px rgba(236,72,153,0.8)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.transform = "none";
-          e.currentTarget.style.boxShadow =
-            "0 12px 20px -8px rgba(236,72,153,0.6)";
-        }}
-      >
-        Debater B 🔴
-      </button>
-    </div>
-  </div>
-</div>
-
-    );
-  }
-
-  /* =======================
-     MAIN UI
-  ======================= */
-  return (
-    <div style={{ width: "100%", minHeight: "100vh", position: "relative" }}>
-      <FlickeringGrid className="absolute inset-0 w-full h-full" />
-
-      <div className="debater-container" style={{ position: "relative", zIndex: 1 }}>
-        <div className="topic-card">
-          <div className="topic-label">Current Topic</div>
-          <div className="topic-text">{topic}</div>
-        </div>
-
-        {/* 🎤 TRANSCRIPTION */}
-        <div className="transcription-section">
-          <button
-            className={`mic-button ${listening ? "listening" : ""}`}
-            onClick={toggleMic}
-            disabled={isMicLocked}
-          >
-            {isMicLocked ? "🔒" : listening ? "🛑" : "🎤"}
-          </button>
-
-          <div className="transcription-display">
-            <div className={`transcription-text ${liveText || accumulatedText ? "live" : "empty"}`}>
-              {liveText ? (
-                <>
-                  <span style={{ opacity: 0.7 }}>
-                    <DecryptedText
-                      text={accumulatedText}
-                      speed={30}
-                      maxIterations={12}
-                      animateOn="view"
-                    />
-                  </span>
-                  <span>{liveText}</span>
-                </>
-              ) : accumulatedText ? (
-                <DecryptedText
-                  text={accumulatedText}
-                  speed={30}
-                  maxIterations={12}
-                  animateOn="view"
-                />
-              ) : (
-                listening ? "Listening..." : "Ready to record"
-              )}
-            </div>
-
-            {/* ✅ FIXED SEND NOW BUTTON (UI + LOGIC) */}
-            {accumulatedText && !listening && (
-              <div style={{ marginTop: "14px", display: "flex", justifyContent: "flex-end" }}>
-                <button
-                  onClick={sendTranscript}
-                  disabled={!canSend}
-                  style={{
-                    padding: "8px 18px",
-                    borderRadius: "999px",
-                    fontSize: "0.9rem",
-                    fontWeight: 600,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    background: canSend
-                      ? "linear-gradient(to right, #6366f1, #a855f7)"
-                      : "rgba(255,255,255,0.08)",
-                    color: canSend ? "#fff" : "#9ca3af",
-                    border: "1px solid rgba(255,255,255,0.15)",
-                    cursor: canSend ? "pointer" : "not-allowed",
-                    boxShadow: canSend
-                      ? "0 8px 20px rgba(99,102,241,0.35)"
-                      : "none",
-                    transition: "all 0.25s ease",
-                    backdropFilter: "blur(10px)"
-                  }}
-                >
-                  Send Now
-                </button>
-              </div>
-            )}
-
-            {!canSend && (
-              <div style={{ color: "#ef4444", marginTop: "8px", fontSize: "0.8rem" }}>
-                Rate limited — wait {cooldown}s
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* 💬 STATEMENTS */}
-        <div className="statements-section">
-          <div className="statements-header">💬 Debate Statements</div>
-          <div className="statements-feed">
-            {statements.map((s, i) => (
-              <div key={i} className="statement-card">
-                <strong>{s.speakerId}</strong>: {s.text}
-              </div>
-            ))}
+      <div className="relative min-h-screen flex items-center justify-center bg-[#00171F] text-white">
+        <FlickeringGrid className="absolute inset-0" />
+        <div className="z-10 rounded-3xl bg-[#00171F]/80 backdrop-blur-xl border border-white/10 p-12 text-center">
+          <h1 className="text-5xl font-extrabold mb-8">🎙️ Select Debater</h1>
+          <div className="flex gap-8 justify-center">
+            <button
+              onClick={() => setSelectedSpeaker("Debater A")}
+              className="px-10 py-5 rounded-2xl font-bold bg-[#003459]"
+            >
+              Debater A 🔵
+            </button>
+            <button
+              onClick={() => setSelectedSpeaker("Debater B")}
+              className="px-10 py-5 rounded-2xl font-bold bg-[#003459]"
+            >
+              Debater B 🔴
+            </button>
           </div>
         </div>
       </div>
+    );
+  }
+
+  /* ================= MAIN UI ================= */
+  return (
+    <div className="relative min-h-screen bg-[#00171F] text-white overflow-hidden">
+      <FlickeringGrid className="absolute inset-0" />
+
+      {/* 🧠 TOPIC CARD */}
+      <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20">
+      <div className="bg-[#00171F]/90 backdrop-blur-xl border border-[#003459]/50 rounded-2xl px-8 py-4 shadow-xl min-w-[320px] text-center">
+        <div className="text-xs uppercase tracking-wider text-[#FFFFFF]/60 mb-1">
+          Current Topic
+        </div>
+        <div className="text-lg font-semibold text-[#FFFFFF] leading-snug">
+          {topic}
+        </div>
+      </div>
+    </div>
+
+      
+
+      {/* 🎤 CENTER STAGE */}
+      <div className="fixed inset-0 flex flex-col items-center justify-center z-10 -translate-y-12">
+        <div
+          ref={transcriptRef}
+          className="max-w-5xl max-h-72 overflow-y-auto text-center text-3xl leading-relaxed px-10 mb-8"
+        >
+          {accumulatedText && (
+            <DecryptedText text={accumulatedText} animateOn="view" />
+          )}
+          {liveText && <span className="opacity-70 ml-1">{liveText}</span>}
+        </div>
+
+        {accumulatedText && !listening && (
+          <button
+            onClick={sendTranscript}
+            disabled={!canSend}
+            className="mb-6 px-8 py-3 rounded-full text-lg font-semibold bg-[#003459]"
+          >
+            Send Now
+          </button>
+        )}
+
+        <button
+          onClick={toggleMic}
+          disabled={isMicLocked}
+          className={`w-32 h-32 rounded-full text-5xl transition
+            ${
+              listening
+                ? "bg-red-600 shadow-[0_0_60px_rgba(255,255,255,0.5)]"
+                : "bg-[#003459] shadow-[0_0_60px_rgba(0,52,89,0.9)]"
+            }
+            ${isMicLocked ? "opacity-50 cursor-not-allowed" : ""}
+          `}
+        >
+          {isMicLocked ? "🔒" : listening ? "🛑" : "🎤"}
+        </button>
+
+        {!canSend && (
+          <div className="mt-4 text-sm text-red-400">
+            Rate limited — wait {cooldown}s
+          </div>
+        )}
+      </div>
+
+      {/* 📝 LAST STATEMENTS */}
+      {allStatements.length > 0 && (
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[90%] max-w-4xl z-20">
+        <div className="space-y-4 max-h-56 overflow-y-auto">
+          {allStatements.slice(0, 5).map((s, i) => (
+            <div
+              key={i}
+              className={`p-5 rounded-2xl backdrop-blur-xl border text-base
+                ${
+                  s.speakerId === selectedSpeaker
+                    ? "bg-[#003459]/70 border-blue-400/40"
+                    : "bg-[#00171F]/80 border-pink-400/40"
+                }
+              `}
+            >
+              <div className="flex justify-between opacity-80 mb-2">
+                <span className="font-semibold">{s.speakerId}</span>
+                <span className="text-xs">
+                  {new Date(s.timestamp).toLocaleTimeString()}
+                </span>
+              </div>
+              <div>{s.text}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
     </div>
   );
 }
