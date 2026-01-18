@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
-import { motion, AnimatePresence } from "motion/react";
+import {
+  Mic,
+  Square,
+  Lock,
+  User,
+  AlertTriangle,
+  MessageSquare
+} from "lucide-react";
 import FlickeringGrid from "./FlickeringGrid";
 import DecryptedText from "./DecryptedText";
 
@@ -163,20 +170,25 @@ export default function Debater({ speakerId: initialSpeakerId }) {
     return (
       <div className="relative min-h-screen flex items-center justify-center bg-[#00171F] text-white">
         <FlickeringGrid className="absolute inset-0" />
+
         <div className="z-10 rounded-3xl bg-[#00171F]/80 backdrop-blur-xl border border-white/10 p-12 text-center">
-          <h1 className="text-5xl font-extrabold mb-8">🎙️ Select Debater</h1>
+          <h1 className="text-5xl font-extrabold mb-8 flex items-center justify-center gap-3">
+            <Mic size={40} /> Select Debater
+          </h1>
+
           <div className="flex gap-8 justify-center">
             <button
               onClick={() => setSelectedSpeaker("Debater A")}
-              className="px-10 py-5 rounded-2xl font-bold bg-[#003459]"
+              className="px-10 py-5 rounded-2xl font-bold bg-[#003459] flex items-center gap-3"
             >
-              Debater A 🔵
+              <User /> Debater A
             </button>
+
             <button
               onClick={() => setSelectedSpeaker("Debater B")}
-              className="px-10 py-5 rounded-2xl font-bold bg-[#003459]"
+              className="px-10 py-5 rounded-2xl font-bold bg-[#003459] flex items-center gap-3"
             >
-              Debater B 🔴
+              <User /> Debater B
             </button>
           </div>
         </div>
@@ -191,17 +203,13 @@ export default function Debater({ speakerId: initialSpeakerId }) {
 
       {/* 🧠 TOPIC CARD */}
       <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20">
-      <div className="bg-[#00171F]/90 backdrop-blur-xl border border-[#003459]/50 rounded-2xl px-8 py-4 shadow-xl min-w-[320px] text-center">
-        <div className="text-xs uppercase tracking-wider text-[#FFFFFF]/60 mb-1">
-          Current Topic
-        </div>
-        <div className="text-lg font-semibold text-[#FFFFFF] leading-snug">
-          {topic}
+        <div className="bg-[#00171F]/90 backdrop-blur-xl border border-[#003459]/50 rounded-2xl px-8 py-4 shadow-xl min-w-[320px] text-center">
+          <div className="flex items-center justify-center gap-2 text-xs uppercase tracking-wider text-white/60 mb-1">
+            <MessageSquare size={14} /> Current Topic
+          </div>
+          <div className="text-lg font-semibold">{topic}</div>
         </div>
       </div>
-    </div>
-
-      
 
       {/* 🎤 CENTER STAGE */}
       <div className="fixed inset-0 flex flex-col items-center justify-center z-10 -translate-y-12">
@@ -228,7 +236,7 @@ export default function Debater({ speakerId: initialSpeakerId }) {
         <button
           onClick={toggleMic}
           disabled={isMicLocked}
-          className={`w-32 h-32 rounded-full text-5xl transition
+          className={`w-32 h-32 rounded-full flex items-center justify-center transition
             ${
               listening
                 ? "bg-red-600 shadow-[0_0_60px_rgba(255,255,255,0.5)]"
@@ -237,11 +245,18 @@ export default function Debater({ speakerId: initialSpeakerId }) {
             ${isMicLocked ? "opacity-50 cursor-not-allowed" : ""}
           `}
         >
-          {isMicLocked ? "🔒" : listening ? "🛑" : "🎤"}
+          {isMicLocked ? (
+            <Lock size={42} />
+          ) : listening ? (
+            <Square size={42} />
+          ) : (
+            <Mic size={42} />
+          )}
         </button>
 
         {!canSend && (
-          <div className="mt-4 text-sm text-red-400">
+          <div className="mt-4 text-sm text-red-400 flex items-center gap-2">
+            <AlertTriangle size={16} />
             Rate limited — wait {cooldown}s
           </div>
         )}
@@ -249,31 +264,33 @@ export default function Debater({ speakerId: initialSpeakerId }) {
 
       {/* 📝 LAST STATEMENTS */}
       {allStatements.length > 0 && (
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[90%] max-w-4xl z-20">
-        <div className="space-y-4 max-h-56 overflow-y-auto">
-          {allStatements.slice(0, 5).map((s, i) => (
-            <div
-              key={i}
-              className={`p-5 rounded-2xl backdrop-blur-xl border text-base
-                ${
-                  s.speakerId === selectedSpeaker
-                    ? "bg-[#003459]/70 border-blue-400/40"
-                    : "bg-[#00171F]/80 border-pink-400/40"
-                }
-              `}
-            >
-              <div className="flex justify-between opacity-80 mb-2">
-                <span className="font-semibold">{s.speakerId}</span>
-                <span className="text-xs">
-                  {new Date(s.timestamp).toLocaleTimeString()}
-                </span>
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[90%] max-w-4xl z-20">
+          <div className="space-y-4 max-h-56 overflow-y-auto">
+            {allStatements.slice(0, 5).map((s, i) => (
+              <div
+                key={i}
+                className={`p-5 rounded-2xl backdrop-blur-xl border
+                  ${
+                    s.speakerId === selectedSpeaker
+                      ? "bg-[#003459]/70 border-blue-400/40"
+                      : "bg-[#00171F]/80 border-pink-400/40"
+                  }
+                `}
+              >
+                <div className="flex justify-between opacity-80 mb-2">
+                  <span className="font-semibold flex items-center gap-2">
+                    <User size={14} /> {s.speakerId}
+                  </span>
+                  <span className="text-xs">
+                    {new Date(s.timestamp).toLocaleTimeString()}
+                  </span>
+                </div>
+                <div>{s.text}</div>
               </div>
-              <div>{s.text}</div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
-    )}
+      )}
     </div>
   );
 }
