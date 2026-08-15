@@ -11,6 +11,7 @@
  */
 
 import type { FactCheckResult } from "@verdict/shared-types";
+import DOMPurify from "dompurify";
 
 let shadowRoot: ShadowRoot | null = null;
 let container: HTMLElement | null = null;
@@ -956,11 +957,15 @@ function formatReportId(id: string): string {
   return `VRT-${clean}`;
 }
 
+/**
+ * Strips ALL HTML from AI-sourced text before it's interpolated into the
+ * card's innerHTML template. DOMPurify actually parses the string and
+ * removes dangerous constructs (script content, event-handler attributes,
+ * etc.) rather than pattern-matching characters, which is a stronger
+ * guarantee than manual entity-escaping — and it stays correct even if a
+ * future field is added and someone forgets to escape it here, since
+ * ALLOWED_TAGS: [] strips markup from any string passed through it.
+ */
 function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+  return DOMPurify.sanitize(str, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
 }
