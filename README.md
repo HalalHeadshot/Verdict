@@ -33,6 +33,8 @@ The backend also depends on two external services and one optional shared-state 
   - Zod-powered schema validation guards every AI response before it's trusted.
   - DOMPurify sanitizes all AI-sourced text before it's rendered in the overlay.
   - Automatic retry logic with exponential backoff handles transient network errors, and every external API call (Groq, Tavily) has an explicit timeout so a hang can't stall a request indefinitely.
+  - A Groq failure (timeout, network error, rate limit, malformed output) degrades to a generic fallback verdict rather than an error — and that fallback is never cached, so a transient outage can't get locked into the response for the full cache TTL once Groq recovers.
+  - Toggling "Enabled" in Options takes effect immediately on already-open tabs (including YouTube), no page refresh required.
   - Graceful offline state handling and YouTube SPA navigation support.
 - **Smart AI Pipeline**:
   1. *Extraction Stage*: Groq (`llama-3.1-8b-instant`) filters out opinions and isolates fact-checkable claims, and flags prompt-injection attempts in the same call.
@@ -172,3 +174,5 @@ You can also manually trigger fact-checks on any text on the page:
 - No automated test suite (no Jest/Vitest) — the scripts above exercise the real pipeline manually against live APIs instead.
 - Redis is optional and falls back to in-memory storage — fine for a single instance, but cache/rate-limit/auth-token state won't be shared if you scale to multiple backend instances without it.
 - No formal accuracy benchmark for verdicts — RAG grounding demonstrably improves correctness on spot-checked cases, but there's no measured accuracy percentage against a known-answer eval set yet.
+- **Groq's free-tier daily token limit is real and reachable under moderate use** — `llama-3.3-70b-versatile` is capped at 100,000 tokens/day. This was hit during development testing (confirmed via `429 rate_limit_exceeded` in the logs). When it happens, requests degrade to a generic "Uncertain" verdict rather than failing outright — but that fallback currently looks identical to a real AI judgment in the API response and the UI; there's no visible indicator that a given verdict was actually a rate-limit/timeout fallback rather than a genuine verification. (The fallback is no longer cached, so it self-resolves once Groq's limit resets — but in-the-moment, it's not distinguishable to the user.)
+- Native right-click context-menu interaction and YouTube's own video player can't be reliably driven by browser automation tools (Playwright/CDP) — confirmed during end-to-end testing. Both need to be manually tested in a real browser; see "Testing in the Browser" above.
