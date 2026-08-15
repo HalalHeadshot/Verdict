@@ -85,10 +85,17 @@ router.post("/verify", async (req: Request, res: Response) => {
   }
 
   // Stage 2: Verify claims
-  const results = await verifyClaims(claims);
+  const { results, degraded } = await verifyClaims(claims);
 
-  // Cache results for future identical requests
-  await cache.set(text, results);
+  // Only cache genuine verdicts. A degraded result (Groq timeout, network
+  // error, rate limit, or malformed output) is a placeholder, not an
+  // authoritative verdict — caching it would lock a transient infra hiccup
+  // into the response for the full 7-day TTL, long after Groq recovers.
+  if (degraded) {
+    console.warn(`⚠️ Not caching degraded verification result for: "${text.slice(0, 60)}..."`);
+  } else {
+    await cache.set(text, results);
+  }
 
   const response: VerifyClaimsResponse = {
     results,

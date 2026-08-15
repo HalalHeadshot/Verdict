@@ -158,7 +158,8 @@ async function testFullPipeline() {
   }
 
   console.log("\n--- Stage 2: verification (with RAG grounding) ---");
-  const results = await verifyClaims(claims);
+  const { results, degraded } = await verifyClaims(claims);
+  console.log(`degraded: ${degraded}`);
   results.forEach((r, i) => {
     console.log(`\n  Result [${i + 1}]`);
     console.log(`    claim:             ${r.claim}`);

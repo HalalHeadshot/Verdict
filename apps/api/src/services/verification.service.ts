@@ -55,9 +55,21 @@ function normalizeResult(
  * Stage 2: Use Groq (llama-3.3-70b-versatile) to fact-check each extracted claim
  * and return structured verdicts with evidence and citations.
  */
-export async function verifyClaims(claims: ExtractedClaim[]): Promise<FactCheckResult[]> {
+export interface VerifyClaimsResult {
+  results: FactCheckResult[];
+  /**
+   * True if this came from the catch-all failure fallback (Groq timeout,
+   * network error, rate limit, or malformed output) rather than a genuine
+   * verification. Callers should NOT cache a degraded result the same way
+   * as a real one — otherwise a transient Groq outage gets locked into the
+   * cache as if it were an authoritative verdict, for the full TTL.
+   */
+  degraded: boolean;
+}
+
+export async function verifyClaims(claims: ExtractedClaim[]): Promise<VerifyClaimsResult> {
   if (!GROQ_API_KEY) throw new Error("GROQ_API_KEY is not configured.");
-  if (!claims.length) return [];
+  if (!claims.length) return { results: [], degraded: false };
 
   // Stage 2a: Retrieve live web evidence for each claim in parallel (RAG grounding).
   // retrieveEvidence() never throws — a search failure or missing TAVILY_API_KEY
@@ -138,26 +150,32 @@ Return ONLY a valid JSON array, no markdown fences, no explanation:
 
     if (result.success) {
       const items = (isArray ? result.data : [result.data]) as RawGroqResult[];
-      return items.map((item) =>
-        normalizeResult(item, claims, item.claim ? (hadEvidence.get(item.claim) ?? false) : false)
-      );
+      return {
+        results: items.map((item) =>
+          normalizeResult(item, claims, item.claim ? (hadEvidence.get(item.claim) ?? false) : false)
+        ),
+        degraded: false,
+      };
     }
 
     console.warn("⚠️ Verification validation failed:", result.error);
     throw new Error("Validation failed");
   } catch (err) {
     console.warn("⚠️ Verification failed (timeout, network error, or malformed output):", err instanceof Error ? err.message : err);
-    return [
-      normalizeResult(
-        {
-          claim: claims.map((c) => c.claim).join(" | "),
-          verdict: "Uncertain",
-          reasoning: "AI returned unstructured output. Manual review recommended.",
-          fact: "Could not be verified automatically.",
-        },
-        claims,
-        false
-      ),
-    ];
+    return {
+      results: [
+        normalizeResult(
+          {
+            claim: claims.map((c) => c.claim).join(" | "),
+            verdict: "Uncertain",
+            reasoning: "AI returned unstructured output. Manual review recommended.",
+            fact: "Could not be verified automatically.",
+          },
+          claims,
+          false
+        ),
+      ],
+      degraded: true,
+    };
   }
 }

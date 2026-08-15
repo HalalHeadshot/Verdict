@@ -44,6 +44,31 @@ if (document.readyState === "loading") {
   init();
 }
 
+// init() only runs once per page load, gated on settings.enabled at that
+// exact moment — and YouTube's SPA navigation (yt-navigate-finish, below)
+// does NOT re-run it. Without this listener, a user who has the extension
+// disabled when a tab first loads, then re-enables it in Options, would see
+// nothing happen on that tab until a full manual page refresh, with no
+// indication anywhere that a refresh was needed. This reacts to the setting
+// change directly instead, so toggling "Enabled" back on takes effect
+// immediately on already-open tabs.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "sync" || !changes.settings) return;
+
+  const newSettings = (changes.settings.newValue as ExtensionSettings) ?? DEFAULT_SETTINGS;
+  const wasEnabled = settings.enabled;
+  settings = newSettings;
+
+  if (!wasEnabled && settings.enabled && !overlayReady) {
+    createOverlay();
+    overlayReady = true;
+    chrome.runtime.sendMessage({ type: "VERDICT_CONTENT_READY" });
+    if (settings.youtubeEnabled && isYouTube()) {
+      observeYouTubeCaptions();
+    }
+  }
+});
+
 // ─── Message Listener (from Background) ───────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message: ExtensionMessage) => {
