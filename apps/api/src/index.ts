@@ -1,10 +1,12 @@
 import express from "express";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
+import { RedisStore, type SendCommandFn } from "rate-limit-redis";
 import dotenv from "dotenv";
 import claimsRouter from "./routes/claims.route.js";
 import authRouter from "./routes/auth.route.js";
 import { apiKeyAuth } from "./middleware/apiKeyAuth.js";
+import { getRedisClient } from "./lib/kv-store.js";
 
 dotenv.config();
 
@@ -30,7 +32,12 @@ app.use(
   })
 );
 
-// Rate limiting: 20 requests per minute per IP
+// Rate limiting: 20 requests per minute per IP.
+// Backed by Redis when REDIS_URL is configured, so the limit is enforced
+// consistently across instances instead of resetting per-process — without
+// this, each instance counted independently and the effective limit
+// multiplied by the number of instances running.
+const redisClient = getRedisClient();
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS ?? "60000"),
   max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS ?? "20"),
@@ -40,6 +47,12 @@ const limiter = rateLimit({
     error: "Too many requests. Please wait before submitting another claim.",
     retryAfter: 60,
   },
+  store: redisClient
+    ? new RedisStore({
+        sendCommand: ((...args: string[]) =>
+          redisClient.call(args[0], ...args.slice(1))) as SendCommandFn,
+      })
+    : undefined, // undefined = express-rate-limit's default in-memory store
 });
 
 app.use("/api/", limiter);
@@ -90,4 +103,5 @@ app.listen(PORT, () => {
   console.log(`   Environment: ${process.env.NODE_ENV ?? "development"}`);
   console.log(`   Groq key:   ${process.env.GROQ_API_KEY ? "✓ loaded" : "✗ MISSING"}`);
   console.log(`   Tavily key: ${process.env.TAVILY_API_KEY ? "✓ loaded (RAG grounding enabled)" : "✗ MISSING (falling back to unaided model knowledge)"}`);
+  console.log(`   Redis:      ${process.env.REDIS_URL ? "✓ configured (cache/tokens/rate-limit shared across instances)" : "✗ not configured (falling back to in-memory, per-instance)"}`);
 });

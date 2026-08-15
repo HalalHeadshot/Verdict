@@ -1,11 +1,12 @@
 /**
- * In-memory cache for Tavily search evidence, keyed per normalized claim text.
+ * Tavily evidence cache, keyed per normalized claim text — separate from
+ * cache.service.ts (which caches full FactCheckResult[] keyed on the
+ * entire submitted request text). This one exists so the SAME claim,
+ * appearing in different requests, reuses one Tavily search instead of
+ * paying for a fresh one every time — the free tier is credit-limited.
  *
- * Separate from cache.service.ts (which caches full FactCheckResult[] keyed
- * on the entire submitted request text). This one exists so that the SAME
- * claim, appearing in different requests, reuses one Tavily search instead
- * of paying for a fresh one every time — the free tier is credit-limited,
- * so redundant searches for identical claims are pure waste.
+ * Redis-backed when REDIS_URL is configured (shared across backend
+ * instances), in-memory otherwise — see lib/kv-store.ts.
  *
  * Only successful search outcomes are cached (including a genuinely empty
  * result set) — missing-key and transient network/timeout failures are
@@ -13,47 +14,26 @@
  * "couldn't check right now," and shouldn't be locked in for the TTL.
  */
 import type { EvidenceSnippet } from "./retrieval.service.js";
+import { createKVStore } from "../lib/kv-store.js";
 
-const TTL_MS = 24 * 60 * 60 * 1000; // 1 day — evidence for a factual claim rarely changes hour to hour
+const TTL_SECONDS = 24 * 60 * 60; // 1 day — evidence for a factual claim rarely changes hour to hour
 
-interface CacheEntry {
-  evidence: EvidenceSnippet[];
-  expiresAt: number;
-}
-
-const store = new Map<string, CacheEntry>();
+const store = createKVStore("evidence-cache");
 
 function makeKey(claim: string): string {
   return claim.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 export const evidenceCache = {
-  get(claim: string): EvidenceSnippet[] | null {
-    const key = makeKey(claim);
-    const entry = store.get(key);
-    if (!entry) return null;
-    if (Date.now() > entry.expiresAt) {
-      store.delete(key);
-      return null;
-    }
-    return entry.evidence;
+  async get(claim: string): Promise<EvidenceSnippet[] | null> {
+    return store.get<EvidenceSnippet[]>(makeKey(claim));
   },
 
-  set(claim: string, evidence: EvidenceSnippet[]): void {
-    const key = makeKey(claim);
-    store.set(key, { evidence, expiresAt: Date.now() + TTL_MS });
+  async set(claim: string, evidence: EvidenceSnippet[]): Promise<void> {
+    await store.set(makeKey(claim), evidence, TTL_SECONDS);
   },
 
-  size(): number {
-    return store.size;
-  },
-
-  prune(): void {
-    const now = Date.now();
-    for (const [key, entry] of store.entries()) {
-      if (now > entry.expiresAt) store.delete(key);
-    }
+  async size(): Promise<number> {
+    return store.size();
   },
 };
-
-setInterval(() => evidenceCache.prune(), 60 * 60 * 1000);

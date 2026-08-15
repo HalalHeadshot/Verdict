@@ -10,7 +10,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { tokenService } from "../services/token.service.js";
 
-export function apiKeyAuth(req: Request, res: Response, next: NextFunction): void {
+export async function apiKeyAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const apiKey = req.header("X-Api-Key");
   const staticKey = process.env.API_KEY;
 
@@ -24,7 +24,7 @@ export function apiKeyAuth(req: Request, res: Response, next: NextFunction): voi
   }
 
   const isStaticKey = !!staticKey && apiKey === staticKey;
-  const isRegisteredToken = tokenService.isValid(apiKey);
+  const isRegisteredToken = isStaticKey ? false : await tokenService.isValid(apiKey);
 
   if (!isStaticKey && !isRegisteredToken) {
     res.status(401).json({ error: "Unauthorized. Invalid or missing X-Api-Key." });

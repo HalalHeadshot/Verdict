@@ -11,8 +11,8 @@ const router = Router();
  * first place, so it can't require one. Still covered by the global
  * rate limiter (mounted on /api/) to prevent token-minting abuse.
  */
-router.post("/register", (_req: Request, res: Response) => {
-  const token = tokenService.issue();
+router.post("/register", async (_req: Request, res: Response) => {
+  const token = await tokenService.issue();
   res.json({ token });
 });
 

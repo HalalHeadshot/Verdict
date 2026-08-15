@@ -1,0 +1,11 @@
+node_modules
+**/node_modules
+dist
+**/dist
+.turbo
+.git
+apps/extension
+**/.env
+*.log
+cheatsheet.md
+report.md

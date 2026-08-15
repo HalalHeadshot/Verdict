@@ -48,8 +48,8 @@ router.post("/verify", async (req: Request, res: Response) => {
   }
   // -----------------
 
-  // Check L2 in-memory cache
-  const cached = cache.get(text);
+  // Check cache (Redis-backed when configured, shared across instances)
+  const cached = await cache.get(text);
   if (cached) {
     const response: VerifyClaimsResponse = {
       results: cached.map((r) => ({ ...r, fromCache: true })),
@@ -67,7 +67,7 @@ router.post("/verify", async (req: Request, res: Response) => {
     console.warn(`⚠️ Blocked request — prompt injection detected: ${extraction.injectionReason ?? "no reason given"}`);
     // Cache the empty outcome so repeated identical injection attempts don't
     // keep re-spending Groq tokens on the same text.
-    cache.set(text, []);
+    await cache.set(text, []);
     const response: VerifyClaimsResponse = { results: [], filteredCount: 0 };
     res.json(response);
     return;
@@ -78,7 +78,7 @@ router.post("/verify", async (req: Request, res: Response) => {
   if (!claims.length) {
     // Same reasoning: repeated identical non-factual text (opinions, filler)
     // shouldn't re-run extraction every time either.
-    cache.set(text, []);
+    await cache.set(text, []);
     const response: VerifyClaimsResponse = { results: [], filteredCount: 0 };
     res.json(response);
     return;
@@ -88,7 +88,7 @@ router.post("/verify", async (req: Request, res: Response) => {
   const results = await verifyClaims(claims);
 
   // Cache results for future identical requests
-  cache.set(text, results);
+  await cache.set(text, results);
 
   const response: VerifyClaimsResponse = {
     results,
@@ -102,10 +102,10 @@ router.post("/verify", async (req: Request, res: Response) => {
  * GET /api/v1/claims/health
  * Returns server health and cache stats.
  */
-router.get("/health", (_req: Request, res: Response) => {
+router.get("/health", async (_req: Request, res: Response) => {
   res.json({
     status: "ok",
-    cacheSize: cache.size(),
+    cacheSize: await cache.size(),
     timestamp: new Date().toISOString(),
   });
 });

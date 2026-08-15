@@ -1,0 +1,29 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "3001:3001"
+    env_file:
+      - apps/api/.env
+    environment:
+      # Overrides the .env value (redis://localhost:6379, meant for running
+      # the API locally via `pnpm dev` against Docker's published Redis
+      # port) with the container's internal network address — Docker's
+      # DNS resolves the "redis" service name to the redis container's IP.
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+volumes:
+  redis-data:

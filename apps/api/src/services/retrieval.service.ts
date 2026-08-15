@@ -22,7 +22,7 @@ interface TavilySearchResponse {
  * whole request over a search provider outage.
  */
 export async function retrieveEvidence(claim: string): Promise<EvidenceSnippet[]> {
-  const cached = evidenceCache.get(claim);
+  const cached = await evidenceCache.get(claim);
   if (cached) return cached;
 
   const apiKey = process.env.TAVILY_API_KEY;
@@ -58,7 +58,7 @@ export async function retrieveEvidence(claim: string): Promise<EvidenceSnippet[]
     // Only cache a genuinely completed search (even if it found nothing) —
     // never cache the missing-key or error/timeout paths above, since those
     // are transient states, not "this claim has no evidence."
-    evidenceCache.set(claim, evidence);
+    await evidenceCache.set(claim, evidence);
     return evidence;
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);

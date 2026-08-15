@@ -1,17 +1,17 @@
 /**
- * In-memory store for per-install API tokens.
+ * Per-install API tokens. Replaces reliance on a single shared static
+ * API_KEY: each extension install registers once (POST /api/v1/auth/register)
+ * and gets its own token. A leaked or abused token can be revoked
+ * individually without invalidating access for every other install, which
+ * a single shared key cannot do.
  *
- * Replaces reliance on a single shared static API_KEY: each extension
- * install registers once (POST /api/v1/auth/register) and gets its own
- * token. A leaked or abused token can be revoked individually without
- * invalidating access for every other install, which a single shared key
- * cannot do.
- *
- * Same in-memory Map pattern as cache.service.ts — in production/multi-
- * instance this should move to a shared store (Redis) for the same reasons
- * documented there.
+ * Redis-backed when REDIS_URL is configured (shared across backend
+ * instances — a token issued by one instance is recognized by all of
+ * them), in-memory otherwise — see lib/kv-store.ts. No TTL: tokens
+ * represent persistent install identity, not disposable cache data.
  */
 import { v4 as uuidv4 } from "uuid";
+import { createKVStore } from "../lib/kv-store.js";
 
 interface TokenRecord {
   createdAt: number;
@@ -19,34 +19,34 @@ interface TokenRecord {
   revoked: boolean;
 }
 
-const tokens = new Map<string, TokenRecord>();
+const store = createKVStore("api-token");
 
 export const tokenService = {
   /** Issue a new unique token and record it as active. */
-  issue(): string {
+  async issue(): Promise<string> {
     const token = uuidv4();
-    tokens.set(token, { createdAt: Date.now(), lastUsedAt: null, revoked: false });
+    await store.set<TokenRecord>(token, { createdAt: Date.now(), lastUsedAt: null, revoked: false });
     return token;
   },
 
   /** True if the token was issued by this service and has not been revoked. */
-  isValid(token: string): boolean {
-    const record = tokens.get(token);
+  async isValid(token: string): Promise<boolean> {
+    const record = await store.get<TokenRecord>(token);
     if (!record || record.revoked) return false;
-    record.lastUsedAt = Date.now();
+    await store.set<TokenRecord>(token, { ...record, lastUsedAt: Date.now() });
     return true;
   },
 
   /** Revoke a single token without affecting any other issued token. */
-  revoke(token: string): boolean {
-    const record = tokens.get(token);
+  async revoke(token: string): Promise<boolean> {
+    const record = await store.get<TokenRecord>(token);
     if (!record) return false;
-    record.revoked = true;
+    await store.set<TokenRecord>(token, { ...record, revoked: true });
     return true;
   },
 
-  /** Count of currently-issued (including revoked) tokens — for health/monitoring. */
-  size(): number {
-    return tokens.size;
+  /** Count of currently-issued tokens — for health/monitoring. */
+  async size(): Promise<number> {
+    return store.size();
   },
 };
