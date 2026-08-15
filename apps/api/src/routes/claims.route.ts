@@ -36,7 +36,8 @@ router.post("/verify", async (req: Request, res: Response) => {
           factDeviationScore: 1.0,
           factDeviationReasoning: "The claim is completely false (Mock).",
           timestamp: new Date().toISOString(),
-          fromCache: false
+          fromCache: false,
+          groundedInSearch: false
         }
       ],
       filteredCount: 0,

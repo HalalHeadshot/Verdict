@@ -39,6 +39,8 @@ export interface FactCheckResult {
   timestamp: string;
   /** Whether this result was served from cache */
   fromCache?: boolean;
+  /** Whether the verdict was grounded in live web search evidence (RAG), vs. the model's unaided training knowledge */
+  groundedInSearch?: boolean;
 }
 
 /** Request body for POST /api/v1/claims/verify */

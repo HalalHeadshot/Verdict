@@ -95,4 +95,5 @@ app.listen(PORT, () => {
   console.log(`✅ Verdict API running at http://localhost:${PORT}`);
   console.log(`   Environment: ${process.env.NODE_ENV ?? "development"}`);
   console.log(`   Groq key:   ${process.env.GROQ_API_KEY ? "✓ loaded" : "✗ MISSING"}`);
+  console.log(`   Tavily key: ${process.env.TAVILY_API_KEY ? "✓ loaded (RAG grounding enabled)" : "✗ MISSING (falling back to unaided model knowledge)"}`);
 });

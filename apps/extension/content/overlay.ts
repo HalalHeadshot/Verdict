@@ -336,6 +336,9 @@ export function showVerdictCard(result: FactCheckResult): void {
         ${result.sourceConfidence > 0
           ? ` · ${Math.round(result.sourceConfidence * 100)}% confidence`
           : ""}
+        ${result.groundedInSearch
+          ? ` · <span title="Verified against live web search results">🔎 web-grounded</span>`
+          : ` · <span title="Based on the AI model's own trained knowledge, not a live search">🧠 model knowledge</span>`}
       </div>
       <span class="verdict-branding">Verdict AI</span>
     </div>
