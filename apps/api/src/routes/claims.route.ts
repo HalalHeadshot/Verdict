@@ -59,10 +59,26 @@ router.post("/verify", async (req: Request, res: Response) => {
     return;
   }
 
-  // Stage 1: Extract claims
-  const claims = await extractFactCheckableClaims(text);
+  // Stage 1: Extract claims — the same call also flags prompt-injection
+  // attempts, at no extra Groq cost (see extraction.service.ts).
+  const extraction = await extractFactCheckableClaims(text);
+
+  if (extraction.injectionDetected) {
+    console.warn(`⚠️ Blocked request — prompt injection detected: ${extraction.injectionReason ?? "no reason given"}`);
+    // Cache the empty outcome so repeated identical injection attempts don't
+    // keep re-spending Groq tokens on the same text.
+    cache.set(text, []);
+    const response: VerifyClaimsResponse = { results: [], filteredCount: 0 };
+    res.json(response);
+    return;
+  }
+
+  const claims = extraction.claims;
 
   if (!claims.length) {
+    // Same reasoning: repeated identical non-factual text (opinions, filler)
+    // shouldn't re-run extraction every time either.
+    cache.set(text, []);
     const response: VerifyClaimsResponse = { results: [], filteredCount: 0 };
     res.json(response);
     return;
