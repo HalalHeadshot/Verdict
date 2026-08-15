@@ -1,8 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 import { evidenceCache } from "./retrieval-cache.service.js";
-
-const TAVILY_TIMEOUT_MS = 8000;
+import { TAVILY_TIMEOUT_MS } from "../config/timeouts.js";
 
 export interface EvidenceSnippet {
   title: string;

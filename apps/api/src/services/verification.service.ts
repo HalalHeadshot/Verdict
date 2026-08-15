@@ -4,6 +4,7 @@ import type { ExtractedClaim, FactCheckResult, VerdictLabel } from "@verdict/sha
 import { z } from "zod";
 import dotenv from "dotenv";
 import { retrieveEvidence, type EvidenceSnippet } from "./retrieval.service.js";
+import { GROQ_TIMEOUT_MS } from "../config/timeouts.js";
 dotenv.config();
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
@@ -108,21 +109,29 @@ Return ONLY a valid JSON array, no markdown fences, no explanation:
 
   const client = new Groq({ apiKey: GROQ_API_KEY });
 
-  const completion = await client.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: JSON.stringify(claimsWithEvidence) },
-    ],
-    temperature: 0.2,
-    max_tokens: 2048,
-  });
-
-  const rawText = (completion.choices[0]?.message?.content ?? "")
-    .replace(/```json\n?|```/g, "")
-    .trim();
-
+  // Whole call — network request AND response parsing — lives inside this
+  // try/catch now, not just the parsing. A timeout, network error, or any
+  // other Groq SDK failure previously propagated uncaught and surfaced as
+  // a raw 500; now it degrades to the same "Uncertain" fallback a malformed
+  // response already produced, matching retrieval.service.ts's pattern.
   try {
+    const completion = await client.chat.completions.create(
+      {
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: JSON.stringify(claimsWithEvidence) },
+        ],
+        temperature: 0.2,
+        max_tokens: 2048,
+      },
+      { timeout: GROQ_TIMEOUT_MS }
+    );
+
+    const rawText = (completion.choices[0]?.message?.content ?? "")
+      .replace(/```json\n?|```/g, "")
+      .trim();
+
     const parsed = JSON.parse(rawText);
     const isArray = Array.isArray(parsed);
     const result = (isArray ? z.array(RawGroqResultSchema) : RawGroqResultSchema).safeParse(parsed);
@@ -136,7 +145,8 @@ Return ONLY a valid JSON array, no markdown fences, no explanation:
 
     console.warn("⚠️ Verification validation failed:", result.error);
     throw new Error("Validation failed");
-  } catch {
+  } catch (err) {
+    console.warn("⚠️ Verification failed (timeout, network error, or malformed output):", err instanceof Error ? err.message : err);
     return [
       normalizeResult(
         {

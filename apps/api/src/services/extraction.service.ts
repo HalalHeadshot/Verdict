@@ -3,6 +3,7 @@ import type { ExtractedClaim } from "@verdict/shared-types";
 import { z } from "zod";
 import dotenv from "dotenv";
 dotenv.config();
+import { GROQ_TIMEOUT_MS } from "../config/timeouts.js";
 
 const ExtractedClaimSchema = z.object({
   claim: z.string(),
@@ -109,36 +110,44 @@ If no fact-checkable claims exist and no injection was detected, return:
 
   const client = new Groq({ apiKey: GROQ_API_KEY });
 
-  const completion = await client.chat.completions.create({
-    model: "llama-3.1-8b-instant",
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: sanitizedText },
-    ],
-    temperature: 0.1,
-    max_tokens: 1024,
-  });
-
-  let raw = (completion.choices[0]?.message?.content ?? "")
-    .replace(/```json\n?|```/g, "")
-    .trim();
-
-  // Defensive fallback: models occasionally add stray preamble/trailing text
-  // despite being told not to. If the response isn't already valid-looking
-  // JSON, slice to the first '{'..last '}' span before giving up on it.
-  if (!raw.startsWith("{")) {
-    const start = raw.indexOf("{");
-    const end = raw.lastIndexOf("}");
-    if (start !== -1 && end !== -1 && end > start) {
-      raw = raw.slice(start, end + 1);
-    }
-  }
-
-  if (process.env.DEBUG_EXTRACTION === "true") {
-    console.log("──── RAW MODEL OUTPUT ────\n" + raw + "\n───────────────────────────");
-  }
-
+  // The whole call — network request AND response parsing — lives inside
+  // this try/catch now, not just the parsing. A timeout, network error, or
+  // any other Groq SDK failure previously propagated uncaught out of this
+  // function and surfaced as a raw 500; now it degrades the same way a
+  // malformed response already did, matching retrieval.service.ts's pattern.
   try {
+    const completion = await client.chat.completions.create(
+      {
+        model: "llama-3.1-8b-instant",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: sanitizedText },
+        ],
+        temperature: 0.1,
+        max_tokens: 1024,
+      },
+      { timeout: GROQ_TIMEOUT_MS }
+    );
+
+    let raw = (completion.choices[0]?.message?.content ?? "")
+      .replace(/```json\n?|```/g, "")
+      .trim();
+
+    // Defensive fallback: models occasionally add stray preamble/trailing text
+    // despite being told not to. If the response isn't already valid-looking
+    // JSON, slice to the first '{'..last '}' span before giving up on it.
+    if (!raw.startsWith("{")) {
+      const start = raw.indexOf("{");
+      const end = raw.lastIndexOf("}");
+      if (start !== -1 && end !== -1 && end > start) {
+        raw = raw.slice(start, end + 1);
+      }
+    }
+
+    if (process.env.DEBUG_EXTRACTION === "true") {
+      console.log("──── RAW MODEL OUTPUT ────\n" + raw + "\n───────────────────────────");
+    }
+
     const parsed = JSON.parse(raw);
     const result = ExtractionResponseSchema.safeParse(parsed);
     if (result.success) {
@@ -154,7 +163,7 @@ If no fact-checkable claims exist and no injection was detected, return:
     console.warn("⚠️ Extraction validation failed:", result.error);
     return { claims: [], injectionDetected: false, injectionReason: null };
   } catch (err) {
-    console.warn("⚠️ Extraction JSON.parse failed:", err instanceof Error ? err.message : err);
+    console.warn("⚠️ Extraction failed (timeout, network error, or malformed output):", err instanceof Error ? err.message : err);
     return { claims: [], injectionDetected: false, injectionReason: null };
   }
 }
