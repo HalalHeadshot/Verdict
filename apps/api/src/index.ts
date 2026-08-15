@@ -3,6 +3,8 @@ import cors from "cors";
 import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
 import claimsRouter from "./routes/claims.route.js";
+import authRouter from "./routes/auth.route.js";
+import { apiKeyAuth } from "./middleware/apiKeyAuth.js";
 
 dotenv.config();
 
@@ -42,23 +44,15 @@ const limiter = rateLimit({
 
 app.use("/api/", limiter);
 
-// API Key Authentication Middleware
-app.use("/api/", (req, res, next) => {
-  const apiKey = req.header("X-Api-Key");
-  const validKey = process.env.API_KEY;
-  if (!validKey) {
-    console.warn("⚠️ API_KEY is not set in environment variables.");
-  }
-  if (!apiKey || apiKey !== validKey) {
-    res.status(401).json({ error: "Unauthorized. Invalid or missing X-Api-Key." });
-    return;
-  }
-  next();
-});
-
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
-app.use("/api/v1/claims", claimsRouter);
+// Public — this is how a client obtains a token in the first place, so it
+// intentionally sits before apiKeyAuth rather than behind it.
+app.use("/api/v1/auth", authRouter);
+
+// Protected — accepts the legacy static API_KEY or any valid per-install
+// token issued via /api/v1/auth/register (see apiKeyAuth.ts).
+app.use("/api/v1/claims", apiKeyAuth, claimsRouter);
 
 // Root health check
 app.get("/", (_req, res) => {

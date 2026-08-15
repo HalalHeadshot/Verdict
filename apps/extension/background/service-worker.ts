@@ -26,6 +26,11 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     await chrome.tabs.create({ url: chrome.runtime.getURL("popup/popup.html") });
   }
 
+  // Register (or reuse) this install's own API token, so it's ready before
+  // the first fact-check request rather than adding latency to it.
+  const { settings } = await chrome.storage.sync.get({ settings: DEFAULT_SETTINGS });
+  await getApiKey(settings.apiUrl ?? DEFAULT_SETTINGS.apiUrl);
+
   setupContextMenu();
 });
 
@@ -140,6 +145,40 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendRes
   return true; // Keep message channel open for async response
 });
 
+// ─── Auth: Per-Install Token Registration ─────────────────────────────────────
+
+/**
+ * Returns this install's own API token, registering one via
+ * POST /api/v1/auth/register if it doesn't have one yet (first run, or
+ * storage was cleared). The token is cached in chrome.storage.local so
+ * registration only happens once per install, not on every request.
+ *
+ * If registration is unreachable or fails for any reason, this falls back
+ * to the build-time VITE_API_KEY — the same key the extension always used
+ * before this change — so the core fact-checking pipeline keeps working
+ * even if the auth endpoint is down.
+ */
+async function getApiKey(apiUrl: string): Promise<string> {
+  const { registeredToken } = await chrome.storage.local.get({ registeredToken: null });
+  if (registeredToken) return registeredToken;
+
+  try {
+    const res = await fetch(`${apiUrl}/api/v1/auth/register`, { method: "POST" });
+    if (res.ok) {
+      const { token } = (await res.json()) as { token?: string };
+      if (token) {
+        await chrome.storage.local.set({ registeredToken: token });
+        return token;
+      }
+    }
+    console.warn(`[Verdict] Token registration returned ${res.status}, falling back to static key.`);
+  } catch (err) {
+    console.warn("[Verdict] Token registration unreachable, falling back to static key:", err);
+  }
+
+  return import.meta.env.VITE_API_KEY || "";
+}
+
 // ─── Core: Run Fact Check via Backend API ─────────────────────────────────────
 
 async function runFactCheck(
@@ -147,7 +186,7 @@ async function runFactCheck(
   settings: ExtensionSettings
 ): Promise<VerifyClaimsResponse | null> {
   const apiUrl = settings.apiUrl ?? DEFAULT_SETTINGS.apiUrl;
-  const apiKey = import.meta.env.VITE_API_KEY || "";
+  const apiKey = await getApiKey(apiUrl);
 
   return fetchWithRetry(`${apiUrl}/api/v1/claims/verify`, {
     method: "POST",
